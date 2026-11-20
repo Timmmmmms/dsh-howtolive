@@ -1,0 +1,130 @@
+{
+  "name": "dsh-howtolive",
+  "version": "0.1.0",
+  "description": "《高性价比人生指南》DeepSeek Harness 原生双端插件（人生补丁 Life Patch）",
+  "type": "module",
+  "main": "lib/host/index.js",
+  "types": "lib/types/host/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/host/index.d.ts",
+      "default": "./lib/host/index.js"
+    },
+    "./host": {
+      "types": "./lib/types/host/index.d.ts",
+      "default": "./lib/host/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./shared": {
+      "types": "./lib/types/shared/index.d.ts",
+      "default": "./lib/shared/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./src/*": "./src/*"
+  },
+  "files": [
+    "lib",
+    "data",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "src"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0",
+    "dsh": ">=0.2.0-rc.0 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:types": "tsc --emitDeclarationOnly --declaration --declarationMap --outDir lib/types",
+    "build": "pnpm run build:types && tsdown",
+    "prepare": "tsdown",
+    "test": "vitest run",
+    "sync": "node scripts/sync-howtolive.mjs"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/dsh-api-session-controller": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-api-workspace-controller": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-connection": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-locale": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-store": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-chat": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-layout": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-sidebar": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-workspace": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-llm": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-session": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-system-prompt": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-tools": "^0.2.2-rc.4",
+    "@deepseek-ai/dsh-util-values": "^0.2.2-rc.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-connection": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-locale": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-store": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-chat": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-layout": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-sidebar": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-system-prompt": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.4",
+    "@deepseek-ai/dsh-util-values": "0.2.2-rc.4",
+    "@testing-library/react": "^16.3.3",
+    "@types/node": "^22.15.0",
+    "@types/react": "~18.3.1",
+    "@types/react-dom": "~18.3.0",
+    "jsdom": "^26.1.0",
+    "lightningcss": "^1.33.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsdown": "^0.22.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

@@ -1,0 +1,320 @@
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 24px;
+  border-radius: var(--dsw-radius-xl);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  background:
+    radial-gradient(
+      90% 80% at 12% 0%,
+      color-mix(in srgb, var(--dsw-alias-state-business-primary) 7%, transparent),
+      transparent 65%
+    ),
+    var(--dsw-alias-bg-layer-1);
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  transition: border-color 220ms var(--ds-ease-in-out);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--dsw-alias-label-primary);
+}
+
+.hint {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.levelBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 13%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-business-primary) 26%, transparent);
+  color: var(--dsw-alias-state-business-primary);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.levelDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: minmax(200px, 232px) minmax(0, 1fr);
+  gap: 22px;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.radarWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.radarSvg {
+  width: 100%;
+  max-width: 232px;
+  height: auto;
+  overflow: visible;
+  user-select: none;
+}
+
+.ring {
+  fill: none;
+  stroke: var(--dsw-alias-border-l1);
+  stroke-width: 0.75;
+}
+
+.ringOuter {
+  stroke: var(--dsw-alias-border-l2);
+  stroke-dasharray: 2.5 2.5;
+}
+
+.spoke {
+  stroke: var(--dsw-alias-border-l1);
+  stroke-width: 0.75;
+}
+
+.radarArea {
+  stroke: var(--dsw-alias-state-business-primary);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--dsw-alias-state-business-primary) 32%, transparent));
+  transition: points 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.radarVertexHalo {
+  fill: color-mix(in srgb, var(--dsw-alias-state-business-primary) 18%, transparent);
+}
+
+.radarVertex {
+  fill: var(--dsw-alias-state-business-primary);
+  stroke: var(--dsw-alias-bg-layer-1);
+  stroke-width: 1.5;
+}
+
+.axisButton {
+  cursor: pointer;
+  fill: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  transition: fill 160ms var(--ds-ease-in-out);
+}
+
+.axisButtonActive {
+  fill: var(--dsw-alias-state-business-primary);
+  font-weight: 600;
+}
+
+@media (hover: hover) {
+  .axisButton:hover {
+    fill: var(--dsw-alias-label-primary);
+  }
+}
+
+.axisRate {
+  fill: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.metricsCol {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.heroMetric {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rateRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.bigRate {
+  font-size: 28px;
+  line-height: 32px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+}
+
+.rateCaption {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.xpBox {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.xpTrack {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  overflow: hidden;
+}
+
+.xpFill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--dsw-alias-state-business-primary),
+    color-mix(in srgb, var(--dsw-alias-state-business-primary) 72%, #38bdf8)
+  );
+  transition: width 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.xpMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.weakestTip {
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.dimGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dimCell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 11px;
+  border-radius: var(--dsw-radius-md);
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 70%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background-color 180ms var(--ds-ease-in-out),
+    border-color 180ms var(--ds-ease-in-out),
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dimCellActive {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, var(--dsw-alias-bg-base));
+}
+
+@media (hover: hover) {
+  .dimCell:hover:not(.dimCellActive) {
+    background: var(--dsw-alias-interactive-bg-hover);
+    border-color: var(--dsw-alias-border-l2);
+    transform: translateY(-1px);
+  }
+}
+
+.dimTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.dimName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.dimValue {
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.dimMiniTrack {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  overflow: hidden;
+}
+
+.dimMiniFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-business-primary);
+  transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radarArea,
+  .xpFill,
+  .axisButton,
+  .dimCell,
+  .dimMiniFill {
+    transition: none;
+  }
+}

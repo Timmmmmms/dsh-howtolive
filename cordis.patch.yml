@@ -1,0 +1,4 @@
+# dsh-howtolive（人生补丁）bundle 配置层
+- insert:
+    - id: howtolive
+      name: dsh-howtolive

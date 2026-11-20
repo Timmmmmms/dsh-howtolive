@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-20T14:41:36.658Z",
+  "upstream": {
+    "repo": "eternity4719/HowToLiveBetter",
+    "url": "https://github.com/eternity4719/HowToLiveBetter",
+    "commitSha": "49fceab4254c8c2df0f7cdb1b2959cab6c451b96",
+    "sourceType": "github"
+  },
+  "stats": {
+    "chapterCount": 34,
+    "itemCount": 772,
+    "taggedItemCount": 772,
+    "tierCounts": {
+      "S": 118,
+      "A": 416,
+      "B": 194,
+      "C": 44
+    },
+    "topAudiences": [
+      {
+        "name": "怀孕",
+        "count": 42
+      },
+      {
+        "name": "婴幼儿",
+        "count": 33
+      },
+      {
+        "name": "孩子",
+        "count": 33
+      },
+      {
+        "name": "老人",
+        "count": 15
+      },
+      {
+        "name": "60岁",
+        "count": 10
+      },
+      {
+        "name": "35岁",
+        "count": 7
+      },
+      {
+        "name": "女性",
+        "count": 3
+      },
+      {
+        "name": "女性+35岁",
+        "count": 3
+      }
+    ]
+  },
+  "dimensions": [
+    {
+      "id": "survival",
+      "name": "生命防线",
+      "subtitle": "意外防护、急救、慢病与用药安全",
+      "chapterNumbers": [
+        1,
+        2,
+        13,
+        16,
+        24,
+        28,
+        33,
+        34
+      ],
+      "itemCount": 219
+    },
+    {
+      "id": "wealth",
+      "name": "财富护城河",
+      "subtitle": "省钱避坑、财务底线、买房租房与创业",
+      "chapterNumbers": [
+        5,
+        7,
+        12,
+        15
+      ],
+      "itemCount": 120
+    },
+    {
+      "id": "legal",
+      "name": "法律防坑盾",
+      "subtitle": "普通人红线、技术人红线与防身避祸",
+      "chapterNumbers": [
+        6,
+        8,
+        9,
+        11,
+        26
+      ],
+      "itemCount": 144
+    },
+    {
+      "id": "career",
+      "name": "职场与效率",
+      "subtitle": "精力时间、技能投资、离职工伤与人生路径",
+      "chapterNumbers": [
+        3,
+        4,
+        19,
+        23,
+        31,
+        32
+      ],
+      "itemCount": 124
+    },
+    {
+      "id": "family",
+      "name": "家庭与关系",
+      "subtitle": "婚恋、孕育、育儿、养老与身后事",
+      "chapterNumbers": [
+        10,
+        17,
+        18,
+        20,
+        25,
+        27,
+        30
+      ],
+      "itemCount": 113
+    },
+    {
+      "id": "resilience",
+      "name": "安全与韧性",
+      "subtitle": "信息安全、境外安全、心理修复与放松",
+      "chapterNumbers": [
+        14,
+        21,
+        22,
+        29
+      ],
+      "itemCount": 52
+    }
+  ]
+}

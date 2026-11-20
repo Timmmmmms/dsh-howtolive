@@ -1,0 +1,241 @@
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+  border-radius: var(--dsw-radius-xl);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  background:
+    radial-gradient(
+      85% 75% at 96% 0%,
+      color-mix(in srgb, var(--dsw-alias-state-warn-primary) 9%, transparent),
+      transparent 62%
+    ),
+    var(--dsw-alias-bg-layer-1);
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  transition: border-color 220ms var(--ds-ease-in-out);
+}
+
+.accentBar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--dsw-alias-state-business-primary) 65%, transparent) 38%,
+    color-mix(in srgb, var(--dsw-alias-state-warn-primary) 65%, transparent) 78%,
+    transparent 100%
+  );
+  opacity: 0.8;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.titleIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-state-warn-primary);
+  flex-shrink: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--dsw-alias-label-primary);
+}
+
+.xpBanner {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-success-tertiary);
+  color: var(--dsw-alias-state-success-primary);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
+  animation: xpPop 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.spin {
+  animation: spinOnce 480ms linear infinite;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  animation: pickSwap 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.metaRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chapterLabel {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  margin-left: 2px;
+}
+
+.titleTrigger {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.itemTitle {
+  margin: 0;
+  font-size: 17px;
+  line-height: 25px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--dsw-alias-label-primary);
+  transition: color 160ms var(--ds-ease-in-out);
+}
+
+@media (hover: hover) {
+  .titleTrigger:hover .itemTitle {
+    color: var(--dsw-alias-state-business-primary);
+  }
+}
+
+.plain {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.costPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: var(--dsw-radius-sm);
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 72%, transparent);
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.costLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-weight: 500;
+}
+
+.costText {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.detailLink {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--dsw-radius-sm);
+  transition: color 160ms var(--ds-ease-in-out), transform 160ms var(--ds-ease-in-out);
+}
+
+@media (hover: hover) {
+  .detailLink:hover {
+    color: var(--dsw-alias-label-primary);
+    transform: translateX(2px);
+  }
+}
+
+.emptyState {
+  padding: 28px 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@keyframes pickSwap {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes xpPop {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes spinOnce {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .body,
+  .xpBanner,
+  .spin {
+    animation: none;
+  }
+  .detailLink,
+  .itemTitle {
+    transition: none;
+  }
+}
