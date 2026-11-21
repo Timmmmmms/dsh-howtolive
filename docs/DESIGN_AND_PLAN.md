@@ -77,7 +77,7 @@
 
 ## 3. 技术架构设计（严格对齐 `dsh` 规范）
 
-> 参考本地 dsh 源码仓库：`D:\deepseekProject\deepseek-harness-pure\deepseek-harness`
+> 参考 dsh 源码仓库：[`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness)
 
 ### 3.1 包形态与目录结构
 
@@ -138,7 +138,7 @@ dsh-howtolive/
    - `howtolive_update_item`：输入 `{ id, status?: "todo"|"planned"|"done"|"skipped", note? }`，更新本地进度并返回最新的维度得分变化（例如 `生命防线 42% -> 46% (+40 XP)`）。
 
 3. **Host ↔ Client 通信接口**
-   - 开发 Agent 需先检查 `D:\deepseekProject\deepseek-harness-pure\deepseek-harness\packages\web\` 与 `packages/client/connection/` 的自定义路由/Fetch 注册规范，为树外插件注册轻量 JSON 端点（前缀建议 `/api/plugins/howtolive/*`）：
+   - 开发 Agent 需先检查 `deepseek-harness` 仓库的 `packages/web/` 与 `packages/client/connection/` 的自定义路由/Fetch 注册规范，为树外插件注册轻量 JSON 端点（前缀建议 `/api/plugins/howtolive/*`）：
      - `GET /bootstrap`：一次性返回 `meta`、`chapters`、精简 `items` 索引与当前用户 `state`。
      - `GET /item/:id`：获取单条完整详情（含完整 `sources`、`notes`、`rawMarkdown`）。
      - `PATCH /progress/:id`：更新单条状态或个人笔记，返回最新 `state` 与 `scoreDelta`。
@@ -148,11 +148,11 @@ dsh-howtolive/
 
 ### 3.3 Client 端设计要点（UI 颜值与规范红线）
 
-开发 Agent **必须** 完整阅读以下 dsh 本地文档后再写 UI：
-- `D:\deepseekProject\deepseek-harness-pure\deepseek-harness\docs\web-styling.zh.md`
-- `D:\deepseekProject\deepseek-harness-pure\deepseek-harness\docs\ui-radius.zh.md`
-- `D:\deepseekProject\deepseek-harness-pure\deepseek-harness\docs\subsystems\slots.zh.md`
-- `D:\deepseekProject\deepseek-harness-pure\deepseek-harness\packages\client\ui-schedule\src\client\index.ts`（最佳实践参考）
+开发 Agent **必须** 完整阅读以下 `deepseek-harness` 文档后再写 UI：
+- `docs/web-styling.zh.md`
+- `docs/ui-radius.zh.md`
+- `docs/subsystems/slots.zh.md`
+- `packages/client/ui-schedule/src/client/index.ts`（最佳实践参考）
 
 **必须遵守的样式与交互纪律**：
 - **严禁引入 Tailwind 或外部 UI 组件库**；使用 CSS Modules + `clsx`。
@@ -175,7 +175,7 @@ dsh-howtolive/
 - [ ] 实现 `src/shared/` 全部类型、6 大情景定义、六维评分与等级纯函数（附 Vitest 单测）。
 - [ ] 实现 `src/host/knowledge-store.ts` 与 `src/host/state-store.ts`（原子落盘、默认状态初始化、多维检索与每日一抽算法）。
 - [ ] 实现 `src/host/tools.ts`，注册 4 个 Agent 工具并编写单元测试。
-- [ ] **阶段验收**：在本地 dsh 中执行 `dsh plugin --profile dev add d:\deepseekProject\dsh-howtolive`，启动会话并测试对话：“帮我从高性价比人生指南里挑 3 个不花钱、A级证据的保命建议”，验证模型能正确调用工具并返回精准结果。
+- [ ] **阶段验收**：在本地 dsh 中执行 `dsh plugin --profile dev add .`，启动会话并测试对话：“帮我从高性价比人生指南里挑 3 个不花钱、A级证据的保命建议”，验证模型能正确调用工具并返回精准结果。
 
 ### Phase 2：Client 高颜值仪表盘 MVP（预计 2-3 天）
 - [ ] 实现 `src/host/routes.ts` 与 `src/client/api.ts`，跑通前后端数据同步。
@@ -199,7 +199,7 @@ dsh-howtolive/
 
 ## 5. 给后续开发 Agent 的关键避坑指南（Handoff Notes）
 
-1. **先查清外部插件的 Client Module 声明方式**：动手写 `cordis.patch.yml` 前，请先阅读 `D:\deepseekProject\deepseek-harness-pure\deepseek-harness\docs\subsystems\client-modules.zh.md` 和 `packages/bundle/web-app/cordis.patch.yml`，确认外部 bundle 如何向 Web Client 暴露浏览器侧入口与 CSS 资产。
+1. **先查清外部插件的 Client Module 声明方式**：动手写 `cordis.patch.yml` 前，请先阅读 `deepseek-harness` 的 `docs/subsystems/client-modules.zh.md` 和 `packages/bundle/web-app/cordis.patch.yml`，确认外部 bundle 如何向 Web Client 暴露浏览器侧入口与 CSS 资产。
 2. **不要直接导入其他功能插件的运行时值**：跨插件协作只走 `ctx.slots` 和注入的 Cordis service，不要运行时 `import` 其他业务插件。
 3. **条目数量较多，注意渲染性能**：原书包含数百条结构化条目，前端列表渲染应做分页或按章节折叠/增量加载，切勿一次性渲染全部 DOM 节点。
 4. **“不适用（skipped）”的计分逻辑**：维度完成率公式为 `done / (total - skipped)`；当用户把某类不相关条目（如育儿/留学/创业）标为 `skipped` 时，界面应有温和提示，避免拉低成就感。

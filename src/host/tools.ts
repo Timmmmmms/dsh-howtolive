@@ -91,7 +91,7 @@ const HOWTOLIVE_SYSTEM_GUIDANCE = [
 ].join('\n')
 
 /**
- * 向 DeepSeek 模型注册 4 个 howtolive 工具及系统提示词指引。
+ * 向 DeepSeek 模型注册 5 个 howtolive 工具及系统提示词指引。
  */
 export function registerHowToLiveTools(
   ctx: Context,

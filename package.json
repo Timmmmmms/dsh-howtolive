@@ -2,6 +2,24 @@
   "name": "dsh-howtolive",
   "version": "0.1.0",
   "description": "《高性价比人生指南》DeepSeek Harness 原生双端插件（人生补丁 Life Patch）",
+  "author": "Timmmmmms",
+  "homepage": "https://github.com/Timmmmmms/dsh-howtolive#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Timmmmmms/dsh-howtolive.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Timmmmmms/dsh-howtolive/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "howtolive",
+    "howtolivebetter",
+    "life-patch",
+    "cordis"
+  ],
   "type": "module",
   "main": "lib/host/index.js",
   "types": "lib/types/host/index.d.ts",
@@ -66,6 +84,7 @@
     "build:types": "tsc --emitDeclarationOnly --declaration --declarationMap --outDir lib/types",
     "build": "pnpm run build:types && tsdown",
     "prepare": "tsdown",
+    "prepublishOnly": "pnpm run typecheck && pnpm test && pnpm run build",
     "test": "vitest run",
     "sync": "node scripts/sync-howtolive.mjs"
   },
