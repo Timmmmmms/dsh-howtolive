@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button, IconCheckOutlineRegular, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -7,12 +7,15 @@ import { selectHowToLivePatches } from '../howtolive-turn.ts'
 import type { HowToLiveViewSnapshot } from '../store.ts'
 import css from './TurnPatchCard.module.css'
 
+const INITIAL_VISIBLE_COUNT = 3
+
 export interface TurnPatchCardInjected {
   readonly hooks: {
     readonly howtolive: HostObservable<HowToLiveViewSnapshot>
   }
   readonly ensureLoaded: () => Promise<void>
   readonly refresh: () => Promise<void>
+  readonly refreshState?: () => Promise<void>
   readonly setItemProgress: (id: string, patch: { status?: ItemStatus }) => Promise<unknown>
   readonly openInPanel: (id?: string) => void
 }
@@ -24,27 +27,50 @@ export type TurnPatchCardProps = PropsRuntime<'conversation.chat.turnTail'>
 /**
  * 挂载在 conversation.chat.turnTail 的聊天内嵌补丁卡片：
  * 当本轮 Agent 调用过 howtolive_search / howtolive_get_item 时，在回复下方呈现可直接打勾与加清单的原生卡片。
+ * 默认展示前 3 条，超出时可展开；打卡成功提供轻量 +XP 状态反馈。
  */
 export function TurnPatchCard(props: TurnPatchCardProps) {
   const matched = selectHowToLivePatches(props)
-  const { useHowtolive, ensureLoaded, refresh, setItemProgress, openInPanel, t } = props
+  const { useHowtolive, ensureLoaded, refresh, refreshState, setItemProgress, openInPanel, t } = props
   const progressMap = useHowtolive((s) => s.state?.progress)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [xpFlash, setXpFlash] = useState<{ id: string; xp: number } | null>(null)
+  const xpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (xpTimerRef.current) clearTimeout(xpTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!matched) return
     void ensureLoaded()
     if (matched.hasUpdate) {
-      void refresh()
+      void (refreshState ? refreshState() : refresh())
     }
-  }, [matched !== null, matched?.hasUpdate, ensureLoaded, refresh])
+  }, [matched !== null, matched?.hasUpdate, ensureLoaded, refresh, refreshState])
 
   if (!matched) return null
 
-  const handleToggle = async (id: string, target: ItemStatus, current: ItemStatus) => {
+  const totalItems = matched.items.length
+  const visibleItems = expanded ? matched.items : matched.items.slice(0, INITIAL_VISIBLE_COUNT)
+  const hiddenCount = Math.max(0, totalItems - INITIAL_VISIBLE_COUNT)
+
+  const handleToggle = async (id: string, target: ItemStatus, current: ItemStatus, itemXp: number) => {
     setBusyId(id)
+    const nextStatus: ItemStatus = current === target ? 'todo' : target
     try {
-      await setItemProgress(id, { status: current === target ? 'todo' : target })
+      await setItemProgress(id, { status: nextStatus })
+      if (nextStatus === 'done' && current !== 'done') {
+        setXpFlash({ id, xp: itemXp })
+        if (xpTimerRef.current) clearTimeout(xpTimerRef.current)
+        xpTimerRef.current = setTimeout(() => {
+          setXpFlash(null)
+          xpTimerRef.current = null
+        }, 2400)
+      }
     } finally {
       setBusyId(null)
     }
@@ -53,14 +79,21 @@ export function TurnPatchCard(props: TurnPatchCardProps) {
   return (
     <div className={css.card}>
       <div className={css.header}>
-        <span className={css.badge}>{t('turn.badge')}</span>
+        <div className={css.headerLeft}>
+          <span className={css.badge}>{t('turn.badge')}</span>
+          {xpFlash && (
+            <span className={css.xpPill} role="status">
+              {t('turn.xpFeedback', { xp: xpFlash.xp })}
+            </span>
+          )}
+        </div>
         <Button variant="ghost" size="sm" onClick={() => openInPanel()}>
           {t('turn.openPanel')}
         </Button>
       </div>
 
       <div className={css.list}>
-        {matched.items.map((item) => {
+        {visibleItems.map((item) => {
           const liveStatus: ItemStatus = progressMap?.[item.id]?.status ?? item.userStatus
           const isBusy = busyId === item.id
 
@@ -86,7 +119,7 @@ export function TurnPatchCard(props: TurnPatchCardProps) {
                   size="sm"
                   disabled={isBusy}
                   icon={liveStatus === 'done' ? <IconCheckOutlineRegular size={14} /> : undefined}
-                  onClick={() => void handleToggle(item.id, 'done', liveStatus)}
+                  onClick={() => void handleToggle(item.id, 'done', liveStatus, item.xp)}
                 >
                   {liveStatus === 'done' ? t('turn.markedDone') : `${t('turn.markDone')} +${item.xp}`}
                 </Button>
@@ -94,7 +127,7 @@ export function TurnPatchCard(props: TurnPatchCardProps) {
                   variant={liveStatus === 'planned' ? 'primary' : 'ghost'}
                   size="sm"
                   disabled={isBusy}
-                  onClick={() => void handleToggle(item.id, 'planned', liveStatus)}
+                  onClick={() => void handleToggle(item.id, 'planned', liveStatus, item.xp)}
                 >
                   {liveStatus === 'planned' ? t('turn.markedPlanned') : t('turn.markPlanned')}
                 </Button>
@@ -106,6 +139,18 @@ export function TurnPatchCard(props: TurnPatchCardProps) {
           )
         })}
       </div>
+
+      {hiddenCount > 0 && (
+        <div className={css.expandRow}>
+          <button
+            type="button"
+            className={css.expandBtn}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? t('turn.collapse') : t('turn.expandMore', { count: hiddenCount })}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -67,6 +67,11 @@
     box-shadow 200ms var(--ds-ease-in-out);
 }
 
+.card:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
 .toneBlue { --sc-accent: #3b82f6; }
 .toneRose { --sc-accent: #f43f5e; }
 .toneAmber { --sc-accent: #f59e0b; }

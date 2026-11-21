@@ -5,7 +5,12 @@ import { Context } from '@deepseek-ai/cordis'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { ToolsService } from '@deepseek-ai/dsh-tools'
 import { afterEach, describe, expect, it } from 'vitest'
-import { KnowledgeStore, StateStore, registerHowToLiveTools } from '../src/host/index.ts'
+import {
+  buildPatchReportMarkdown,
+  KnowledgeStore,
+  StateStore,
+  registerHowToLiveTools,
+} from '../src/host/index.ts'
 
 const tempDirs: string[] = []
 
@@ -132,6 +137,101 @@ describe('Host KnowledgeStore & StateStore & Tools', () => {
       execStub,
     )) as { items: Array<{ id: string }> }
     expect(searchAfterDone.items.some((i) => i.id === firstId)).toBe(false)
+
+    disposeTools()
+    await ctx.fiber?.dispose()
+  })
+
+  it('StateStore 支持复检字段持久化、批量更新、导入校验与完善版 Markdown 导出', async () => {
+    const filePath = await createTempStateFile()
+    const knowledge = new KnowledgeStore().loadSync()
+    const store = new StateStore(filePath)
+    store.loadSync()
+
+    // 找一条 S 级和一条非 S 级条目
+    const sItem = knowledge.allSummaries.find((i) => i.roiTier === 'S')!
+    const otherItem = knowledge.allSummaries.find((i) => i.roiTier !== 'S')!
+
+    await store.updateItemsProgressBatch([
+      {
+        id: sItem.id,
+        status: 'done',
+        note: 'S级个人笔记',
+        reviewIntervalDays: 180,
+        lastReviewedAt: '2026-11-21T00:00:00.000Z',
+      },
+      {
+        id: otherItem.id,
+        status: 'done',
+        note: '非S级个人笔记',
+      },
+    ])
+
+    const reloaded = new StateStore(filePath).loadSync()
+    expect(reloaded.progress[sItem.id]?.reviewIntervalDays).toBe(180)
+    expect(reloaded.progress[sItem.id]?.lastReviewedAt).toBe('2026-11-21T00:00:00.000Z')
+
+    const md = buildPatchReportMarkdown(knowledge, reloaded)
+    expect(md).toContain('其他已完成补丁汇总')
+    expect(md).toContain('我的私有笔记汇编')
+    expect(md).toContain('S级个人笔记')
+    expect(md).toContain('非S级个人笔记')
+
+    // 清除复检周期
+    await store.updateItemProgress(sItem.id, { reviewIntervalDays: null, lastReviewedAt: null })
+    expect(store.getSnapshot().progress[sItem.id]?.reviewIntervalDays).toBeUndefined()
+    expect(store.getSnapshot().progress[sItem.id]?.lastReviewedAt).toBeUndefined()
+
+    // 非法导入校验
+    await expect(store.importState({ version: 99 })).rejects.toThrow(/不支持的状态版本号/)
+  })
+
+  it('howtolive_batch_update_items 支持一次批量更新多条建议状态并汇总 XP', async () => {
+    const stateFile = await createTempStateFile()
+    const knowledge = new KnowledgeStore().loadSync()
+    const stateStore = new StateStore(stateFile)
+    stateStore.loadSync()
+
+    const ctx = new Context()
+    ctx.plugin(SystemPrompt)
+    ctx.plugin(ToolsService)
+    await new Promise<void>((resolve) => {
+      ctx.inject(['tools', 'systemPrompt'], () => {
+        resolve()
+      })
+    })
+
+    const disposeTools = registerHowToLiveTools(ctx, knowledge, stateStore)
+    const batchTool = ctx.tools.get('howtolive_batch_update_items')!
+    expect(batchTool).toBeDefined()
+
+    const first = knowledge.allSummaries[0]!
+    const second = knowledge.allSummaries[1]!
+    const execStub = { signal: new AbortController().signal } as never
+
+    const res = (await batchTool.execute(
+      {
+        items: [
+          { id: first.id, status: 'done', note: '批量1' },
+          { id: second.id, status: 'planned' },
+          { id: '99-99', status: 'done' },
+        ],
+      },
+      execStub,
+    )) as {
+      ok: boolean
+      updatedCount: number
+      notFoundIds: string[]
+      xpDelta: number
+      totalXp: number
+    }
+
+    expect(res.ok).toBe(true)
+    expect(res.updatedCount).toBe(2)
+    expect(res.notFoundIds).toEqual(['99-99'])
+    expect(res.xpDelta).toBe(first.xp)
+    expect(stateStore.getSnapshot().progress[first.id]?.note).toBe('批量1')
+    expect(stateStore.getSnapshot().progress[second.id]?.status).toBe('planned')
 
     disposeTools()
     await ctx.fiber?.dispose()

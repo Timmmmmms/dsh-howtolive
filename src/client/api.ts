@@ -3,11 +3,12 @@ import type {
   DailyPickState,
   HowToLiveState,
   ItemProgress,
-  ItemStatus,
+  ItemProgressPatch,
   KnowledgeItem,
   KnowledgeItemSummary,
   ProgressUpdateResult,
   ScoreSummary,
+  StatePayload,
   UserProfile,
 } from '../shared/types.ts'
 
@@ -46,15 +47,39 @@ export function fetchBootstrap(): Promise<BootstrapPayload> {
   return requestJson<BootstrapPayload>(`${API_BASE}/bootstrap`)
 }
 
+/** 轻量刷新本地状态、六维评分与今日一抽（不拉取全量条目） */
+export function fetchState(): Promise<StatePayload> {
+  return requestJson<StatePayload>(`${API_BASE}/state`)
+}
+
+/** 导出本地状态 JSON 备份 */
+export function fetchStateExport(): Promise<{
+  filename: string
+  exportedAt: string
+  state: HowToLiveState
+}> {
+  return requestJson(`${API_BASE}/state/export`)
+}
+
+/** 导入恢复本地状态 JSON 备份 */
+export function postStateImport(payload: HowToLiveState | { state: HowToLiveState }): Promise<
+  StatePayload & { ok: boolean; importedAt: string }
+> {
+  return requestJson(`${API_BASE}/state/import`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 /** 获取单条建议完整循证详情 */
 export function fetchItemDetail(id: string): Promise<ItemDetailResponse> {
   return requestJson<ItemDetailResponse>(`${API_BASE}/item?id=${encodeURIComponent(id)}`)
 }
 
-/** 更新条目状态或私有笔记 */
+/** 更新条目状态、私有笔记或复检周期 */
 export function postItemProgress(
   id: string,
-  patch: { status?: ItemStatus; note?: string },
+  patch: ItemProgressPatch,
 ): Promise<ProgressUpdateResult> {
   return requestJson<ProgressUpdateResult>(`${API_BASE}/progress`, {
     method: 'POST',

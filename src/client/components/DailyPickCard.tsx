@@ -109,19 +109,31 @@ export function DailyPickCard({
           </div>
 
           <div className={css.footer}>
-            <Button
-              variant="primary"
-              size="sm"
-              icon={itemStatus === 'done' ? <IconCheck size={14} /> : undefined}
-              disabled={busy || itemStatus === 'done'}
-              onClick={() => void handleAction(() => onMarkStatus(item.id, 'done'))}
-            >
-              {itemStatus === 'done' ? t('turn.markedDone') : t('daily.markDone', { xp: item.xp })}
-            </Button>
+            {itemStatus === 'done' ? (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<IconRefresh size={14} className={rerolling ? css.spin : undefined} />}
+                disabled={busy}
+                onClick={() => void handleAction(onReroll, true)}
+              >
+                {t('daily.drawNext')}
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                icon={<IconCheck size={14} />}
+                disabled={busy}
+                onClick={() => void handleAction(() => onMarkStatus(item.id, 'done'))}
+              >
+                {t('daily.markDone', { xp: item.xp })}
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
-              disabled={busy || itemStatus === 'planned'}
+              disabled={busy || itemStatus === 'planned' || itemStatus === 'done'}
               onClick={() => void handleAction(() => onMarkStatus(item.id, 'planned'))}
             >
               {itemStatus === 'planned' ? t('turn.markedPlanned') : t('daily.markPlanned')}

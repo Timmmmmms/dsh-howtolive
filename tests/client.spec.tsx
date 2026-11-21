@@ -4,6 +4,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TurnLocation } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 
+vi.mock('@deepseek-ai/dsh-client-store', () => ({
+  createSnapshotStore: <T extends object>(initial: T) => {
+    let snapshot: T = structuredClone(initial)
+    const listeners = new Set<() => void>()
+    return {
+      getSnapshot: () => snapshot,
+      update: (updater: (draft: T) => void) => {
+        const draft = structuredClone(snapshot)
+        updater(draft)
+        snapshot = draft
+        for (const l of listeners) l()
+      },
+      subscribe: (listener: () => void) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+    }
+  },
+}))
+
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ children, icon, ...rest }: Record<string, unknown>) => (
     <button type="button" {...(rest as object)}>
@@ -30,13 +50,16 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
 
 import { LifeRadarCard } from '../src/client/components/LifeRadarCard.tsx'
 import { DailyPickCard } from '../src/client/components/DailyPickCard.tsx'
+import { DEFAULT_FILTERS, FilterBar } from '../src/client/components/FilterBar.tsx'
+import { ItemDetailDrawer } from '../src/client/components/ItemDetailDrawer.tsx'
 import { ScenarioBar } from '../src/client/components/ScenarioBar.tsx'
 import { ProfileModal } from '../src/client/components/ProfileModal.tsx'
 import { TurnPatchCard } from '../src/client/components/TurnPatchCard.tsx'
 import { howtoliveTurnDefinition, selectHowToLivePatches } from '../src/client/howtolive-turn.ts'
-import { zh, type HowToLiveLocaleKey } from '../src/client/locales.ts'
+import { en, zh, type HowToLiveLocaleKey } from '../src/client/locales.ts'
+import { createHowToLiveController } from '../src/client/store.ts'
 import { computeScoreSummary, DEFAULT_DIMENSIONS } from '../src/shared/scoring.ts'
-import type { KnowledgeItemSummary } from '../src/shared/types.ts'
+import type { KnowledgeItem, KnowledgeItemSummary } from '../src/shared/types.ts'
 
 afterEach(() => {
   cleanup()
@@ -44,6 +67,16 @@ afterEach(() => {
 
 const t: TranslateNS<'howtolive'> = ((key: HowToLiveLocaleKey, params?: Record<string, unknown>) => {
   let text: string = zh[key] ?? key
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      text = text.replaceAll(`{${k}}`, String(v))
+    }
+  }
+  return text
+}) as TranslateNS<'howtolive'>
+
+const tEn: TranslateNS<'howtolive'> = ((key: HowToLiveLocaleKey, params?: Record<string, unknown>) => {
+  let text: string = en[key] ?? key
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       text = text.replaceAll(`{${k}}`, String(v))
@@ -259,5 +292,201 @@ describe('Client components & Turn projection', () => {
     expect(onSaveAndCheckup).toHaveBeenCalledWith(
       expect.objectContaining({ occupation: 'programmer', housing: 'renting' }),
     )
+  })
+
+  it('FilterBar 英文模式正确显示 Filters，支持排序、一键清空与 / 快捷键聚焦', () => {
+    const onChange = vi.fn()
+    render(
+      <FilterBar
+        filters={{ ...DEFAULT_FILTERS, query: '安全带' }}
+        dimensions={DEFAULT_DIMENSIONS}
+        chapters={[]}
+        audiences={[]}
+        shownCount={1}
+        totalCount={10}
+        skippedCount={0}
+        onChange={onChange}
+        t={tEn}
+      />,
+    )
+
+    // 英文模式不再硬编码显示中文「筛选」
+    expect(screen.getByRole('button', { name: 'Filters' })).toBeTruthy()
+
+    // 一键清空搜索按钮
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ query: '' }))
+
+    // 排序选择器
+    fireEvent.change(screen.getByLabelText('Sort by'), { target: { value: 'roi' } })
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ sort: 'roi' }))
+
+    // `/` 快捷键聚焦搜索框
+    const input = screen.getByLabelText(en['filter.searchPlaceholder'])
+    fireEvent.keyDown(window, { key: '/' })
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('ProfileModal 英文模式本地化且移除 autofocus，并支持跳过画像直接体检', () => {
+    const onSkipToCheckup = vi.fn()
+    render(
+      <ProfileModal
+        open={true}
+        profile={{}}
+        onClose={() => {}}
+        onSave={async () => {}}
+        onSaveAndCheckup={async () => {}}
+        onSkipToCheckup={onSkipToCheckup}
+        t={tEn}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Developer / Tech' })).toBeTruthy()
+    const textarea = screen.getByPlaceholderText(en['profile.customNotePlaceholder'])
+    expect(textarea.hasAttribute('data-modal-autofocus')).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip & Run Checkup' }))
+    expect(onSkipToCheckup).toHaveBeenCalledTimes(1)
+  })
+
+  it('DailyPickCard 在 done 状态下主按钮切换为「再抽一张」', async () => {
+    const onReroll = vi.fn(async () => {})
+    render(
+      <DailyPickCard
+        item={SAMPLE_ITEM}
+        itemStatus="done"
+        xpFeedback={null}
+        onMarkStatus={async () => {}}
+        onReroll={onReroll}
+        onOpenDetail={() => {}}
+        t={t}
+      />,
+    )
+
+    const drawNextBtn = screen.getByRole('button', { name: '再抽一张' })
+    expect((drawNextBtn as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(drawNextBtn)
+    await waitFor(() => expect(onReroll).toHaveBeenCalledTimes(1))
+  })
+
+  it('ItemDetailDrawer 支持问 AI 怎么落地、返回上一条与失焦自动保存笔记', async () => {
+    const onGoBack = vi.fn()
+    const onAskAi = vi.fn()
+    const onUpdateProgress = vi.fn(async () => {})
+    const fullItem: KnowledgeItem = {
+      ...SAMPLE_ITEM,
+      benefit: '大幅降低致死率',
+      sources: 'WHO 指南',
+      notes: '后排务必提醒乘客系好安全带',
+      rawMarkdown: '',
+    }
+
+    render(
+      <ItemDetailDrawer
+        open={true}
+        loading={false}
+        summaryItem={SAMPLE_ITEM}
+        detail={{ item: fullItem, crossRefs: [] }}
+        progress={{ status: 'todo', updatedAt: '2026-11-21T00:00:00Z' }}
+        canGoBack={true}
+        onGoBack={onGoBack}
+        onClose={() => {}}
+        onJumpToItem={() => {}}
+        onAskAi={onAskAi}
+        onUpdateProgress={onUpdateProgress}
+        t={t}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '返回上一条' }))
+    expect(onGoBack).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '问 AI 怎么落地' }))
+    expect(onAskAi).toHaveBeenCalledWith(fullItem)
+
+    const textarea = screen.getByPlaceholderText(zh['drawer.notePlaceholder'])
+    fireEvent.change(textarea, { target: { value: '已在后排贴提醒贴纸' } })
+    fireEvent.blur(textarea)
+    await waitFor(() =>
+      expect(onUpdateProgress).toHaveBeenCalledWith('01-01', { note: '已在后排贴提醒贴纸' }),
+    )
+  })
+
+  it('TurnPatchCard 超过 3 条时默认折叠并提供展开其余按钮', () => {
+    const items = Array.from({ length: 5 }, (_, idx) => ({
+      id: `01-0${idx + 1}`,
+      title: `测试条目 ${idx + 1}`,
+      roiTier: 'S' as const,
+      evidenceGrade: 'A',
+      xp: 40,
+      plain: '摘要',
+      cost: '0元',
+      userStatus: 'todo' as const,
+      seq: 2,
+    }))
+    const turnLocation = {
+      turn: 1,
+      end: { seq: 5 },
+      data: new Map([['howtolive-patches', { items, hasUpdate: false }]]),
+    } as unknown as TurnLocation
+
+    const useHowtolive = ((selector: (s: { state: null }) => unknown) => selector({ state: null })) as never
+    render(
+      <TurnPatchCard
+        turn={turnLocation}
+        seq={5}
+        openFile={() => {}}
+        useHowtolive={useHowtolive}
+        ensureLoaded={async () => {}}
+        refresh={async () => {}}
+        setItemProgress={async () => ({})}
+        openInPanel={() => {}}
+        t={t}
+      />,
+    )
+
+    expect(screen.getByText('测试条目 1')).toBeTruthy()
+    expect(screen.getByText('测试条目 3')).toBeTruthy()
+    expect(screen.queryByText('测试条目 4')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '展开其余 2 条' }))
+    expect(screen.getByText('测试条目 4')).toBeTruthy()
+    expect(screen.getByText('测试条目 5')).toBeTruthy()
+  })
+
+  it('Store controller 支持乐观更新与失败自动回滚', async () => {
+    const controller = createHowToLiveController()
+    const summary = computeScoreSummary([SAMPLE_ITEM], {}, DEFAULT_DIMENSIONS)
+    controller.store.update((draft) => {
+      draft.status = 'ready'
+      draft.meta = {
+        schemaVersion: 1,
+        generatedAt: '2026-11-21T00:00:00Z',
+        upstream: { repo: 'test', url: 'https://example.com', commitSha: null, sourceType: 'local' },
+        stats: { chapterCount: 1, itemCount: 1, taggedItemCount: 1, tierCounts: { S: 1, A: 0, B: 0, C: 0 }, topAudiences: [] },
+        dimensions: [...DEFAULT_DIMENSIONS],
+      }
+      draft.items = [SAMPLE_ITEM]
+      draft.state = { version: 1, profile: {}, progress: {}, updatedAt: '2026-11-21T00:00:00Z' }
+      draft.summary = summary
+    })
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      () => Promise.resolve(new Response(JSON.stringify({ error: 'disk full' }), { status: 500 })),
+    )
+
+    try {
+      const promise = controller.setItemProgress('01-01', { status: 'done' })
+      // 请求未完成前已乐观更新
+      expect(controller.store.getSnapshot().state?.progress['01-01']?.status).toBe('done')
+      expect(controller.store.getSnapshot().summary?.totalXp).toBe(40)
+
+      await expect(promise).rejects.toThrow('disk full')
+      // 失败后自动回滚
+      expect(controller.store.getSnapshot().state?.progress['01-01']).toBeUndefined()
+      expect(controller.store.getSnapshot().summary?.totalXp).toBe(0)
+    } finally {
+      fetchSpy.mockRestore()
+    }
   })
 })

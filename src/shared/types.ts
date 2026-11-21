@@ -17,6 +17,64 @@ export type RoiTier = 'S' | 'A' | 'B' | 'C'
 /** 单条建议的用户执行状态 */
 export type ItemStatus = 'todo' | 'planned' | 'done' | 'skipped'
 
+/** 列表排序模式 */
+export type SortMode = 'chapter' | 'roi' | 'zeroCost' | 'xp' | 'noted'
+
+/** 主视图模式：卡片清单 / 漏洞扫描 / 关系星图 */
+export type ViewMode = 'cards' | 'cve' | 'graph'
+
+/** 成就徽章唯一标识（V2 公共领域契约） */
+export type BadgeId =
+  | 'first-patch'
+  | 'zero-cost-master'
+  | 'clear-declutter'
+  | 'cyber-armor'
+  | 'golden-four-min'
+  | 'labor-law-dict'
+  | 'hexagon-warrior'
+  | 'note-keeper'
+  | 's-tier-hunter'
+  | 'annual-inspector'
+
+/** 成就徽章计算结果 */
+export interface BadgeInfo {
+  id: BadgeId
+  name: string
+  description: string
+  unlocked: boolean
+  current: number
+  target: number
+  progressPct: number
+}
+
+/** 人生漏洞严重等级 */
+export type VulnerabilitySeverity = 'CRITICAL' | 'HIGH'
+
+/** 系统安全状态评级 */
+export type SecurityStatus = 'Exposed' | 'Guarded' | 'Hardened'
+
+/** 单条人生漏洞扫描结果 */
+export interface LifeVulnerability {
+  cveId: string
+  severity: VulnerabilitySeverity
+  item: KnowledgeItemSummary
+  status: ItemStatus
+  reason: string
+  score: number
+}
+
+/** 人生 OS 架构师名片画像（严格脱敏） */
+export interface LifeOsProfile {
+  version: string
+  archetype: string
+  tagline: string
+  securityStatus: SecurityStatus
+  overallRate: number
+  level: LevelInfo
+  dimensions: DimensionScore[]
+  featuredBadges: BadgeInfo[]
+}
+
 /** 结构化成本与收益标签 */
 export interface CostTags {
   money: string | null
@@ -125,7 +183,21 @@ export interface UserProfile {
 export interface ItemProgress {
   status: ItemStatus
   note?: string
+  /** 可选复检周期（天数，如 90 / 180 / 365） */
+  reviewIntervalDays?: number
+  /** 最近一次完成复检的时间戳（ISO 8601） */
+  lastReviewedAt?: string
   updatedAt: string
+}
+
+/** 单条进度局部更新载荷 */
+export interface ItemProgressPatch {
+  status?: ItemStatus
+  note?: string
+  /** 传 null 或 <= 0 表示取消复检周期 */
+  reviewIntervalDays?: number | null
+  /** 传 null 表示清除复检时间 */
+  lastReviewedAt?: string | null
 }
 
 /** 今日高性价比一抽持久化状态 */
@@ -199,6 +271,13 @@ export interface BootstrapPayload {
   meta: KnowledgeMeta
   chapters: ChapterInfo[]
   items: KnowledgeItemSummary[]
+  state: HowToLiveState
+  summary: ScoreSummary
+  dailyPickItem: KnowledgeItemSummary | null
+}
+
+/** 轻量状态刷新响应（不含全量 772 条摘要） */
+export interface StatePayload {
   state: HowToLiveState
   summary: ScoreSummary
   dailyPickItem: KnowledgeItemSummary | null

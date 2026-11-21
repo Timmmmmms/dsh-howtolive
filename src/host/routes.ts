@@ -8,6 +8,7 @@ import type {
   DailyPickState,
   ItemStatus,
   ProgressUpdateResult,
+  StatePayload,
   UserProfile,
 } from '../shared/types.ts'
 import { buildPatchReportMarkdown } from './export.ts'
@@ -110,6 +111,69 @@ export function createHowToLiveRoutes(
       },
     },
     {
+      path: `${API_PREFIX}/state`,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      async fetch() {
+        const { itemId } = await ensureTodayDailyPick(knowledge, stateStore)
+        const state = stateStore.getSnapshot()
+        const summary = computeScoreSummary(knowledge.allSummaries, state.progress, knowledge.meta.dimensions)
+        const pickedFull = itemId ? knowledge.getById(itemId) : undefined
+        const payload: StatePayload = {
+          state,
+          summary,
+          dailyPickItem: pickedFull ? toItemSummary(pickedFull) : null,
+        }
+        return jsonResponse(payload)
+      },
+    },
+    {
+      path: `${API_PREFIX}/state/export`,
+      methods: ['GET'],
+      requestBody: 'buffered',
+      async fetch() {
+        const state = stateStore.getSnapshot()
+        const now = new Date()
+        return jsonResponse({
+          filename: `life-patch-state-${todayDateString(now)}.json`,
+          exportedAt: now.toISOString(),
+          state,
+        })
+      },
+    },
+    {
+      path: `${API_PREFIX}/state/import`,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      async fetch(request) {
+        const body = await readJsonBody(request)
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          return jsonResponse({ error: '无效的导入请求体' }, 400)
+        }
+        const record = body as Record<string, unknown>
+        const rawState = 'state' in record && typeof record.state === 'object' && record.state !== null
+          ? record.state
+          : record
+        try {
+          const state = await stateStore.importState(rawState)
+          const { itemId } = await ensureTodayDailyPick(knowledge, stateStore)
+          const latestState = stateStore.getSnapshot()
+          const summary = computeScoreSummary(knowledge.allSummaries, latestState.progress, knowledge.meta.dimensions)
+          const pickedFull = itemId ? knowledge.getById(itemId) : undefined
+          return jsonResponse({
+            ok: true,
+            state: latestState,
+            summary,
+            dailyPickItem: pickedFull ? toItemSummary(pickedFull) : null,
+            importedAt: state.updatedAt,
+          })
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err)
+          return jsonResponse({ error: message }, 400)
+        }
+      },
+    },
+    {
       path: `${API_PREFIX}/item`,
       methods: ['GET'],
       requestBody: 'buffered',
@@ -130,7 +194,13 @@ export function createHowToLiveRoutes(
       requestBody: 'buffered',
       async fetch(request) {
         const body = (await readJsonBody(request)) as
-          | { id?: unknown; status?: unknown; note?: unknown }
+          | {
+              id?: unknown
+              status?: unknown
+              note?: unknown
+              reviewIntervalDays?: unknown
+              lastReviewedAt?: unknown
+            }
           | undefined
         const id = typeof body?.id === 'string' ? body.id.trim() : ''
         if (!id) return jsonResponse({ error: '缺少有效的条目 id' }, 400)
@@ -147,6 +217,28 @@ export function createHowToLiveRoutes(
         }
         const note = typeof body?.note === 'string' ? body.note : undefined
 
+        let reviewIntervalDays: number | null | undefined
+        if (body?.reviewIntervalDays !== undefined) {
+          if (body.reviewIntervalDays === null) {
+            reviewIntervalDays = null
+          } else if (typeof body.reviewIntervalDays === 'number' && Number.isFinite(body.reviewIntervalDays)) {
+            reviewIntervalDays = body.reviewIntervalDays
+          } else {
+            return jsonResponse({ error: '无效的 reviewIntervalDays 值' }, 400)
+          }
+        }
+
+        let lastReviewedAt: string | null | undefined
+        if (body?.lastReviewedAt !== undefined) {
+          if (body.lastReviewedAt === null) {
+            lastReviewedAt = null
+          } else if (typeof body.lastReviewedAt === 'string') {
+            lastReviewedAt = body.lastReviewedAt
+          } else {
+            return jsonResponse({ error: '无效的 lastReviewedAt 值' }, 400)
+          }
+        }
+
         const before = computeScoreSummary(
           knowledge.allSummaries,
           stateStore.getSnapshot().progress,
@@ -157,6 +249,8 @@ export function createHowToLiveRoutes(
         const updated = await stateStore.updateItemProgress(id, {
           ...(status !== undefined ? { status } : {}),
           ...(note !== undefined ? { note } : {}),
+          ...(reviewIntervalDays !== undefined ? { reviewIntervalDays } : {}),
+          ...(lastReviewedAt !== undefined ? { lastReviewedAt } : {}),
         })
 
         const after = computeScoreSummary(

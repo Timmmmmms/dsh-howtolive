@@ -1,4 +1,4 @@
-import type { ScenarioPreset, ScoreSummary, UserProfile } from './types.ts'
+import type { KnowledgeItem, KnowledgeItemSummary, ScenarioPreset, ScoreSummary, UserProfile } from './types.ts'
 
 /**
  * 6 大「遇事不慌」情景急救箱预设，严格对应 DESIGN_AND_PLAN.md 章节映射。
@@ -161,4 +161,35 @@ export function buildScenarioPrompt(scenario: ScenarioPreset, profile: UserProfi
     '- 请优先引用原书的 `evidenceGrade`（证据等级）、`sources`（来源/法规/研究依据）与 `notes`（操作细节），绝不编造不存在的法条、赔偿标准或医疗剂量。',
     '- 若发现属于人身安全、重大急性疾病或正在发生的电信诈骗，请在回复最开头显著提示立即拨打 120 / 110 / 96110 或寻求现场专业帮助。',
   ].join('\n')
+}
+
+/**
+ * 构造单条建议「问 AI 怎么落地」的定制执行提示词。
+ */
+export function buildItemActionPrompt(
+  item: KnowledgeItemSummary | KnowledgeItem,
+  profile: UserProfile,
+): string {
+  const profileText = formatProfileContext(profile)
+  const extraBenefit = 'benefit' in item && item.benefit ? `收益/代价：${item.benefit}` : ''
+  const extraNotes = 'notes' in item && item.notes ? `原书操作备注：${item.notes}` : ''
+
+  return [
+    `请帮我制定【[${item.id}] ${item.title}】的个人落地执行方案，先调用 \`howtolive_get_item\`（id: "${item.id}"）核对完整原文与交叉引用。`,
+    '',
+    '### 条目摘要',
+    `- 所属章节：第 ${item.chapterNumber} 章 ${item.chapterTitle}`,
+    `- 性价比与证据：${item.roiTier} 级 · 证据 ${item.evidenceGrade || 'C'} · 成本：${item.cost || '见详情'}`,
+    `- 说人话：${item.plain}`,
+    extraBenefit ? `- ${extraBenefit}` : '',
+    extraNotes ? `- ${extraNotes}` : '',
+    '',
+    '### 我的本地个人画像',
+    profileText,
+    '',
+    '### 回答要求',
+    '1. 结合我的个人画像，拆解成 3~5 个清晰、低阻力、本周即可完成的具体行动步骤。',
+    '2. 标出常见踩坑点、需要提前准备的材料/工具，以及如何低成本验证是否落实到位。',
+    '3. 若涉及医疗、法律或财务决策，请忠实引用原书 `evidenceGrade` 与 `sources`，不编造数据或法条。',
+  ].filter(Boolean).join('\n')
 }

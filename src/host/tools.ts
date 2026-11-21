@@ -87,7 +87,7 @@ const HOWTOLIVE_SYSTEM_GUIDANCE = [
   '1. 优先调用 `howtolive_search` / `howtolive_get_item` 检索原文，禁止凭记忆编造条目 ID、法规条文、赔偿比例或医疗剂量。',
   '2. 回答健康、法律、重大财务问题时，必须忠实引用条目的 `evidenceGrade`（证据等级）与 `sources`（来源出处）；遇到紧急危及生命的情况应立即提醒拨打 120 / 110 或前往急诊。',
   '3. 默认排除用户已标记 `done` 或 `skipped`（不适用）的条目，优先推荐零成本/低成本 S/A 级高性价比条目。',
-  '4. 仅在用户明确表示“已做到”“加入待办”“标记不适用”或“记录笔记”时，才调用 `howtolive_update_item`。',
+  '4. 仅在用户明确表示“已做到”“加入待办”“标记不适用”或“记录笔记”时，才调用 `howtolive_update_item` 或 `howtolive_batch_update_items`（多条更新优先使用批量工具减少往返）。',
 ].join('\n')
 
 /**
@@ -453,6 +453,130 @@ export function registerHowToLiveTools(
           }
         },
         presentCall: (args) => present('更新人生补丁进度', 'other', `${args.id}${args.status ? ` → ${args.status}` : ''}`),
+      }),
+    ),
+  )
+
+  // 5. howtolive_batch_update_items
+  disposers.push(
+    ctx.tools.register(
+      defineTool({
+        name: 'howtolive_batch_update_items',
+        description: '一次性批量更新多条建议的本地执行状态（todo/planned/done/skipped）或个人笔记（最多 20 条），单次原子落盘并返回总 XP 与等级变化。',
+        parameters: {
+          items: {
+            type: 'array',
+            required: true,
+            description: '待更新条目列表（1-20 条），每项包含 id、可选 status 和可选 note。',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', required: true, description: '条目 ID，例如 "01-01"。' },
+                status: { type: 'string', enum: ITEM_STATUSES, description: '目标状态。' },
+                note: { type: 'string', description: '个人私有笔记（传空字符串可清空）。' },
+              },
+            },
+          },
+        },
+        output: {
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              ok: { type: 'boolean', required: true },
+              updatedCount: { type: 'integer', required: true },
+              notFoundIds: { type: 'array', required: true, items: { type: 'string' } },
+              xpDelta: { type: 'integer', required: true },
+              totalXp: { type: 'integer', required: true },
+              level: { type: 'integer', required: true },
+              results: {
+                type: 'array',
+                required: true,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: 'string', required: true },
+                    title: { type: 'string', required: true },
+                    previousStatus: { type: 'string', required: true, enum: ITEM_STATUSES },
+                    status: { type: 'string', required: true, enum: ITEM_STATUSES },
+                  },
+                },
+              },
+            },
+          },
+          render: renderJsonValue,
+        },
+        async execute(args) {
+          const inputList = args.items.slice(0, 20)
+          const validUpdates: Array<{ id: string; title: string; status?: ItemStatus; note?: string }> = []
+          const notFoundIds: string[] = []
+
+          for (const entry of inputList) {
+            const trimmedId = entry.id.trim()
+            const item = knowledge.getById(trimmedId)
+            if (!item) {
+              notFoundIds.push(entry.id)
+              continue
+            }
+            validUpdates.push({
+              id: item.id,
+              title: item.title,
+              ...(entry.status !== undefined ? { status: entry.status } : {}),
+              ...(entry.note !== undefined ? { note: entry.note } : {}),
+            })
+          }
+
+          const beforeSummary = computeScoreSummary(
+            knowledge.allSummaries,
+            stateStore.getSnapshot().progress,
+            knowledge.meta.dimensions,
+          )
+
+          if (validUpdates.length === 0) {
+            return {
+              ok: false,
+              updatedCount: 0,
+              notFoundIds,
+              xpDelta: 0,
+              totalXp: beforeSummary.totalXp,
+              level: beforeSummary.level.level,
+              results: [],
+            }
+          }
+
+          const { changes, state } = await stateStore.updateItemsProgressBatch(
+            validUpdates.map((u) => ({
+              id: u.id,
+              ...(u.status !== undefined ? { status: u.status } : {}),
+              ...(u.note !== undefined ? { note: u.note } : {}),
+            })),
+          )
+
+          const afterSummary = computeScoreSummary(
+            knowledge.allSummaries,
+            state.progress,
+            knowledge.meta.dimensions,
+          )
+          const titleById = new Map(validUpdates.map((u) => [u.id, u.title]))
+
+          return {
+            ok: true,
+            updatedCount: changes.length,
+            notFoundIds,
+            xpDelta: afterSummary.totalXp - beforeSummary.totalXp,
+            totalXp: afterSummary.totalXp,
+            level: afterSummary.level.level,
+            results: changes.map((c) => ({
+              id: c.id,
+              title: titleById.get(c.id) ?? c.id,
+              previousStatus: c.previousStatus,
+              status: c.currentStatus,
+            })),
+          }
+        },
+        presentCall: (args) => present('批量更新人生补丁进度', 'other', `${args.items.length} 条`),
       }),
     ),
   )

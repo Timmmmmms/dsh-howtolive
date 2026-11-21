@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, Modal, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { UserProfile } from '../../shared/types.ts'
+import type { HowToLiveLocaleKey } from '../locales.ts'
 import css from './ProfileModal.module.css'
 
 export interface ProfileModalProps {
@@ -10,49 +11,51 @@ export interface ProfileModalProps {
   readonly onClose: () => void
   readonly onSave: (profile: UserProfile) => Promise<void>
   readonly onSaveAndCheckup: (profile: UserProfile) => Promise<void>
+  /** 首次体检引导模式下提供「跳过画像直接体检」入口 */
+  readonly onSkipToCheckup?: () => void
   readonly t: TranslateNS<'howtolive'>
 }
 
-const AGE_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['ageGroup']>; label: string }> = [
-  { value: '18-25', label: '18-25 岁' },
-  { value: '26-35', label: '26-35 岁' },
-  { value: '36-45', label: '36-45 岁' },
-  { value: '46-60', label: '46-60 岁' },
-  { value: '60+', label: '60 岁以上' },
+const AGE_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['ageGroup']>; labelKey: HowToLiveLocaleKey }> = [
+  { value: '18-25', labelKey: 'profile.age.18-25' },
+  { value: '26-35', labelKey: 'profile.age.26-35' },
+  { value: '36-45', labelKey: 'profile.age.36-45' },
+  { value: '46-60', labelKey: 'profile.age.46-60' },
+  { value: '60+', labelKey: 'profile.age.60+' },
 ]
 
-const OCCUPATION_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['occupation']>; label: string }> = [
-  { value: 'programmer', label: '程序员 / 技术' },
-  { value: 'office', label: '上班族' },
-  { value: 'freelance', label: '自由职业 / 独立开发' },
-  { value: 'business', label: '创业 / 个体' },
-  { value: 'student', label: '学生' },
-  { value: 'other', label: '其他' },
+const OCCUPATION_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['occupation']>; labelKey: HowToLiveLocaleKey }> = [
+  { value: 'programmer', labelKey: 'profile.occupation.programmer' },
+  { value: 'office', labelKey: 'profile.occupation.office' },
+  { value: 'freelance', labelKey: 'profile.occupation.freelance' },
+  { value: 'business', labelKey: 'profile.occupation.business' },
+  { value: 'student', labelKey: 'profile.occupation.student' },
+  { value: 'other', labelKey: 'profile.occupation.other' },
 ]
 
-const HOUSING_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['housing']>; label: string }> = [
-  { value: 'renting', label: '租房' },
-  { value: 'buying', label: '准备买房 / 供房' },
-  { value: 'owned', label: '自有住房' },
-  { value: 'family', label: '与家人同住' },
+const HOUSING_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['housing']>; labelKey: HowToLiveLocaleKey }> = [
+  { value: 'renting', labelKey: 'profile.housing.renting' },
+  { value: 'buying', labelKey: 'profile.housing.buying' },
+  { value: 'owned', labelKey: 'profile.housing.owned' },
+  { value: 'family', labelKey: 'profile.housing.family' },
 ]
 
-const FAMILY_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['family']>[number]; label: string }> = [
-  { value: 'single', label: '单身' },
-  { value: 'partner', label: '伴侣 / 已婚' },
-  { value: 'pregnant', label: '备孕 / 孕期' },
-  { value: 'infant', label: '婴幼儿' },
-  { value: 'child', label: '学龄孩子' },
-  { value: 'elderly', label: '照顾老人' },
+const FAMILY_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['family']>[number]; labelKey: HowToLiveLocaleKey }> = [
+  { value: 'single', labelKey: 'profile.family.single' },
+  { value: 'partner', labelKey: 'profile.family.partner' },
+  { value: 'pregnant', labelKey: 'profile.family.pregnant' },
+  { value: 'infant', labelKey: 'profile.family.infant' },
+  { value: 'child', labelKey: 'profile.family.child' },
+  { value: 'elderly', labelKey: 'profile.family.elderly' },
 ]
 
-const GOAL_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['goals']>[number]; label: string }> = [
-  { value: 'health', label: '生命防线与健康' },
-  { value: 'money', label: '省钱攒钱与防坑' },
-  { value: 'legal', label: '法律合规与维权' },
-  { value: 'career', label: '职场效率与路径' },
-  { value: 'family', label: '婚育亲子与养老' },
-  { value: 'security', label: '信息安全与心态' },
+const GOAL_OPTIONS: ReadonlyArray<{ value: NonNullable<UserProfile['goals']>[number]; labelKey: HowToLiveLocaleKey }> = [
+  { value: 'health', labelKey: 'profile.goals.health' },
+  { value: 'money', labelKey: 'profile.goals.money' },
+  { value: 'legal', labelKey: 'profile.goals.legal' },
+  { value: 'career', labelKey: 'profile.goals.career' },
+  { value: 'family', labelKey: 'profile.goals.family' },
+  { value: 'security', labelKey: 'profile.goals.security' },
 ]
 
 function toggleArrayItem<T extends string>(list: readonly T[] | undefined, value: T): T[] {
@@ -69,6 +72,7 @@ export function ProfileModal({
   onClose,
   onSave,
   onSaveAndCheckup,
+  onSkipToCheckup,
   t,
 }: ProfileModalProps) {
   const [draft, setDraft] = useState<UserProfile>(profile)
@@ -106,6 +110,11 @@ export function ProfileModal({
       contentClassName={css.content}
       footer={
         <div className={css.footer}>
+          {onSkipToCheckup && (
+            <Button variant="ghost" size="sm" onClick={onSkipToCheckup} disabled={busy}>
+              {t('profile.skipToCheckup')}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>
             {t('profile.cancel')}
           </Button>
@@ -134,7 +143,7 @@ export function ProfileModal({
                 })
               }
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </Pill>
           ))}
         </div>
@@ -156,7 +165,7 @@ export function ProfileModal({
                 })
               }
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </Pill>
           ))}
         </div>
@@ -178,7 +187,7 @@ export function ProfileModal({
                 })
               }
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </Pill>
           ))}
         </div>
@@ -198,7 +207,7 @@ export function ProfileModal({
                 }))
               }
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </Pill>
           ))}
         </div>
@@ -218,7 +227,7 @@ export function ProfileModal({
                 }))
               }
             >
-              {opt.label}
+              {t(opt.labelKey)}
             </Pill>
           ))}
         </div>
@@ -228,7 +237,6 @@ export function ProfileModal({
         <span className={css.fieldLabel}>{t('profile.customNote')}</span>
         <textarea
           className={css.textarea}
-          data-modal-autofocus
           value={draft.customNote ?? ''}
           placeholder={t('profile.customNotePlaceholder')}
           onChange={(e) => setDraft((prev) => ({ ...prev, customNote: e.target.value }))}

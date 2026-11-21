@@ -106,6 +106,36 @@ export function IconChevronRight({ size = 15, ...rest }: IconProps) {
   )
 }
 
+/** 左箭头（返回上一条） */
+export function IconArrowLeft({ size = 15, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <path d="m12 19-7-7 7-7" />
+      <path d="M19 12H5" />
+    </svg>
+  )
+}
+
+/** 上箭头（回到顶部） */
+export function IconArrowUp({ size = 15, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <path d="m5 12 7-7 7 7" />
+      <path d="M12 19V5" />
+    </svg>
+  )
+}
+
+/** 关闭/清空（搜索框一键清空） */
+export function IconX({ size = 14, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </svg>
+  )
+}
+
 /** 对勾（打卡） */
 export function IconCheck({ size = 14, ...rest }: IconProps) {
   return (

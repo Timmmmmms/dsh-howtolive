@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import clsx from 'clsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DimensionId, ScoreSummary } from '../../shared/types.ts'
@@ -41,6 +42,7 @@ export function LifeRadarCard({
   onSelectDimension,
   t,
 }: LifeRadarCardProps) {
+  const radarFillId = useId()
   const dims = summary.dimensions
   const count = dims.length || 6
   const ratios = dims.map((d) => Math.max(0.14, d.completionRate / 100))
@@ -78,7 +80,7 @@ export function LifeRadarCard({
             aria-label={t('radar.title')}
           >
             <defs>
-              <radialGradient id="howtoliveRadarFill" cx="50%" cy="50%" r="55%">
+              <radialGradient id={radarFillId} cx="50%" cy="50%" r="55%">
                 <stop offset="0%" stopColor="var(--dsw-alias-state-business-primary)" stopOpacity="0.34" />
                 <stop offset="100%" stopColor="var(--dsw-alias-state-business-primary)" stopOpacity="0.08" />
               </radialGradient>
@@ -108,7 +110,7 @@ export function LifeRadarCard({
 
             <polygon
               className={css.radarArea}
-              fill="url(#howtoliveRadarFill)"
+              fill={`url(#${radarFillId})`}
               points={polygonPoints(ratios)}
             />
 

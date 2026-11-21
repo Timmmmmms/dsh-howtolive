@@ -2,12 +2,25 @@ import clsx from 'clsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { SCENARIOS } from '../../shared/scenarios.ts'
 import type { ScenarioPreset } from '../../shared/types.ts'
+import type { HowToLiveLocaleKey } from '../locales.ts'
 import { IconArrowUpRight, ScenarioIcon } from './Icons.tsx'
 import css from './ScenarioBar.module.css'
 
 export interface ScenarioBarProps {
   readonly onSelectScenario: (scenario: ScenarioPreset) => void
   readonly t: TranslateNS<'howtolive'>
+}
+
+const SCENARIO_LOCALE_KEYS: Record<
+  string,
+  { readonly title: HowToLiveLocaleKey; readonly subtitle: HowToLiveLocaleKey } | undefined
+> = {
+  layoff: { title: 'scenario.layoff.title', subtitle: 'scenario.layoff.subtitle' },
+  medical: { title: 'scenario.medical.title', subtitle: 'scenario.medical.subtitle' },
+  housing: { title: 'scenario.housing.title', subtitle: 'scenario.housing.subtitle' },
+  developer: { title: 'scenario.developer.title', subtitle: 'scenario.developer.subtitle' },
+  security: { title: 'scenario.security.title', subtitle: 'scenario.security.subtitle' },
+  recovery: { title: 'scenario.recovery.title', subtitle: 'scenario.recovery.subtitle' },
 }
 
 const TONE_CLASS: Record<string, string | undefined> = {
@@ -33,26 +46,31 @@ export function ScenarioBar({ onSelectScenario, t }: ScenarioBarProps) {
       </div>
 
       <div className={css.grid}>
-        {SCENARIOS.map((sc) => (
-          <button
-            key={sc.id}
-            type="button"
-            className={clsx(css.card, TONE_CLASS[sc.id])}
-            title={t('scenario.launch')}
-            onClick={() => onSelectScenario(sc)}
-          >
-            <span className={css.iconBox} aria-hidden="true">
-              <ScenarioIcon id={sc.id} size={18} />
-            </span>
-            <div className={css.cardBody}>
-              <span className={css.cardTitle}>{sc.title}</span>
-              <span className={css.cardSub}>{sc.subtitle}</span>
-            </div>
-            <span className={css.arrow} aria-hidden="true">
-              <IconArrowUpRight size={15} />
-            </span>
-          </button>
-        ))}
+        {SCENARIOS.map((sc) => {
+          const keys = SCENARIO_LOCALE_KEYS[sc.id]
+          const title = keys ? t(keys.title) : sc.title
+          const subtitle = keys ? t(keys.subtitle) : sc.subtitle
+          return (
+            <button
+              key={sc.id}
+              type="button"
+              className={clsx(css.card, TONE_CLASS[sc.id])}
+              title={t('scenario.launch')}
+              onClick={() => onSelectScenario(sc)}
+            >
+              <span className={css.iconBox} aria-hidden="true">
+                <ScenarioIcon id={sc.id} size={18} />
+              </span>
+              <div className={css.cardBody}>
+                <span className={css.cardTitle}>{title}</span>
+                <span className={css.cardSub}>{subtitle}</span>
+              </div>
+              <span className={css.arrow} aria-hidden="true">
+                <IconArrowUpRight size={15} />
+              </span>
+            </button>
+          )
+        })}
       </div>
     </section>
   )

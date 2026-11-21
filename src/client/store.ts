@@ -1,7 +1,10 @@
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { computeScoreSummary } from '../shared/scoring.ts'
 import type {
   ChapterInfo,
   HowToLiveState,
+  ItemProgress,
+  ItemProgressPatch,
   ItemStatus,
   KnowledgeItem,
   KnowledgeItemSummary,
@@ -14,6 +17,7 @@ import {
   fetchBootstrap,
   fetchExportMarkdown,
   fetchItemDetail,
+  fetchState,
   postItemProgress,
   postRerollDailyPick,
   postSyncKnowledge,
@@ -30,6 +34,7 @@ export interface HowToLiveViewSnapshot {
   summary: ScoreSummary | null
   dailyPickItem: KnowledgeItemSummary | null
   selectedItemId: string | null
+  detailHistory: string[]
   detailLoading: boolean
   detailCache: Record<string, { item: KnowledgeItem; crossRefs: KnowledgeItemSummary[] }>
   xpFeedback: { id: string; delta: number; seq: number } | null
@@ -46,6 +51,7 @@ const INITIAL_SNAPSHOT: HowToLiveViewSnapshot = {
   summary: null,
   dailyPickItem: null,
   selectedItemId: null,
+  detailHistory: [],
   detailLoading: false,
   detailCache: {},
   xpFeedback: null,
@@ -56,13 +62,50 @@ export interface HowToLiveClientController {
   readonly store: SnapshotStore<HowToLiveViewSnapshot>
   ensureLoaded(): Promise<void>
   refresh(): Promise<void>
-  openItemDetail(id: string): Promise<void>
+  refreshState(): Promise<void>
+  openItemDetail(id: string, options?: { pushHistory?: boolean }): Promise<void>
+  goBackItemDetail(): Promise<void>
   closeItemDetail(): void
-  setItemProgress(id: string, patch: { status?: ItemStatus; note?: string }): Promise<ProgressUpdateResult>
+  setItemProgress(id: string, patch: ItemProgressPatch): Promise<ProgressUpdateResult>
   saveProfile(profile: UserProfile): Promise<void>
   rerollDaily(): Promise<void>
   exportMarkdown(): Promise<{ filename: string; markdown: string }>
   syncUpstream(): Promise<void>
+}
+
+function buildOptimisticProgress(
+  prevProgress: Record<string, ItemProgress>,
+  id: string,
+  patch: ItemProgressPatch,
+): Record<string, ItemProgress> {
+  const prev = prevProgress[id]
+  const currentStatus: ItemStatus = patch.status ?? prev?.status ?? 'todo'
+  const nextNote = patch.note !== undefined ? patch.note.trim() : prev?.note
+  const nextReviewIntervalDays = patch.reviewIntervalDays !== undefined
+    ? (patch.reviewIntervalDays !== null && patch.reviewIntervalDays > 0 ? Math.floor(patch.reviewIntervalDays) : undefined)
+    : prev?.reviewIntervalDays
+  const nextLastReviewedAt = patch.lastReviewedAt !== undefined
+    ? (patch.lastReviewedAt !== null && patch.lastReviewedAt.trim() ? patch.lastReviewedAt.trim() : undefined)
+    : prev?.lastReviewedAt
+
+  const next = { ...prevProgress }
+  if (
+    currentStatus === 'todo'
+    && !nextNote
+    && nextReviewIntervalDays === undefined
+    && nextLastReviewedAt === undefined
+  ) {
+    delete next[id]
+  } else {
+    next[id] = {
+      status: currentStatus,
+      ...(nextNote ? { note: nextNote } : {}),
+      ...(nextReviewIntervalDays !== undefined ? { reviewIntervalDays: nextReviewIntervalDays } : {}),
+      ...(nextLastReviewedAt !== undefined ? { lastReviewedAt: nextLastReviewedAt } : {}),
+      updatedAt: new Date().toISOString(),
+    }
+  }
+  return next
 }
 
 /**
@@ -71,6 +114,7 @@ export interface HowToLiveClientController {
 export function createHowToLiveController(): HowToLiveClientController {
   const store = createSnapshotStore<HowToLiveViewSnapshot>(INITIAL_SNAPSHOT)
   let inflightLoad: Promise<void> | null = null
+  let inflightStateRefresh: Promise<void> | null = null
   let feedbackSeq = 0
 
   const refresh = async (): Promise<void> => {
@@ -110,17 +154,37 @@ export function createHowToLiveController(): HowToLiveClientController {
     return inflightLoad
   }
 
+  /** 轻量状态刷新：仅拉取 state + summary + dailyPickItem，避免重复拉取全部 772 条摘要 */
+  const refreshState = async (): Promise<void> => {
+    const snap = store.getSnapshot()
+    if (snap.status !== 'ready' || snap.meta === null) {
+      return refresh()
+    }
+    if (inflightStateRefresh) return inflightStateRefresh
+    inflightStateRefresh = fetchState()
+      .then((payload) => {
+        store.update((draft) => {
+          draft.state = payload.state
+          draft.summary = payload.summary
+          draft.dailyPickItem = payload.dailyPickItem
+        })
+      })
+      .catch(() => {
+        // 后台焦点刷新静默忽略瞬时网络错误，不覆盖已有页面状态
+      })
+      .finally(() => {
+        inflightStateRefresh = null
+      })
+    return inflightStateRefresh
+  }
+
   const ensureLoaded = async (): Promise<void> => {
     const snap = store.getSnapshot()
     if (snap.status === 'ready') return
     await refresh()
   }
 
-  const openItemDetail = async (id: string): Promise<void> => {
-    store.update((draft) => {
-      draft.selectedItemId = id
-      draft.detailLoading = !draft.detailCache[id]
-    })
+  const loadItemDetail = async (id: string): Promise<void> => {
     if (store.getSnapshot().detailCache[id]) return
     try {
       const detail = await fetchItemDetail(id)
@@ -139,33 +203,90 @@ export function createHowToLiveController(): HowToLiveClientController {
     }
   }
 
+  const openItemDetail = async (id: string, options?: { pushHistory?: boolean }): Promise<void> => {
+    store.update((draft) => {
+      if (options?.pushHistory && draft.selectedItemId && draft.selectedItemId !== id) {
+        draft.detailHistory.push(draft.selectedItemId)
+      } else if (!options?.pushHistory) {
+        draft.detailHistory = []
+      }
+      draft.selectedItemId = id
+      draft.detailLoading = !draft.detailCache[id]
+    })
+    await loadItemDetail(id)
+  }
+
+  const goBackItemDetail = async (): Promise<void> => {
+    let targetId: string | null = null
+    store.update((draft) => {
+      const prev = draft.detailHistory.pop()
+      if (!prev) return
+      targetId = prev
+      draft.selectedItemId = prev
+      draft.detailLoading = !draft.detailCache[prev]
+    })
+    if (targetId) {
+      await loadItemDetail(targetId)
+    }
+  }
+
   const closeItemDetail = (): void => {
     store.update((draft) => {
       draft.selectedItemId = null
+      draft.detailHistory = []
       draft.detailLoading = false
     })
   }
 
+  /** 乐观更新条目进度，请求失败时自动回滚至更新前快照并抛出错误 */
   const setItemProgress = async (
     id: string,
-    patch: { status?: ItemStatus; note?: string },
+    patch: ItemProgressPatch,
   ): Promise<ProgressUpdateResult> => {
-    const result = await postItemProgress(id, patch)
-    store.update((draft) => {
-      draft.state = result.state
-      draft.summary = result.summary
-      if (result.xpDelta > 0) {
-        draft.xpFeedback = { id, delta: result.xpDelta, seq: ++feedbackSeq }
+    const snapBefore = store.getSnapshot()
+    const prevState = snapBefore.state
+    const prevSummary = snapBefore.summary
+
+    if (prevState && snapBefore.items.length > 0 && snapBefore.meta) {
+      const optimisticProgress = buildOptimisticProgress(prevState.progress, id, patch)
+      const optimisticState: HowToLiveState = {
+        ...prevState,
+        progress: optimisticProgress,
+        updatedAt: new Date().toISOString(),
       }
-      // 若今日推荐卡刚好被标记为完成或跳过，则在完成态保留片刻或刷新新卡
-      if (
-        draft.dailyPickItem?.id === id
-        && (result.currentStatus === 'done' || result.currentStatus === 'skipped')
-      ) {
-        // 交由用户手动换下一张或在下次 refresh 时轮换
-      }
-    })
-    return result
+      const optimisticSummary = computeScoreSummary(
+        snapBefore.items,
+        optimisticProgress,
+        snapBefore.meta.dimensions,
+      )
+      const xpDelta = prevSummary ? optimisticSummary.totalXp - prevSummary.totalXp : 0
+      store.update((draft) => {
+        draft.state = optimisticState
+        draft.summary = optimisticSummary
+        if (xpDelta > 0) {
+          draft.xpFeedback = { id, delta: xpDelta, seq: ++feedbackSeq }
+        }
+      })
+    }
+
+    try {
+      const result = await postItemProgress(id, patch)
+      store.update((draft) => {
+        draft.state = result.state
+        draft.summary = result.summary
+        if (result.xpDelta > 0 && draft.xpFeedback?.id !== id) {
+          draft.xpFeedback = { id, delta: result.xpDelta, seq: ++feedbackSeq }
+        }
+      })
+      return result
+    } catch (err) {
+      // 请求失败时自动回滚到乐观更新前的状态
+      store.update((draft) => {
+        draft.state = prevState
+        draft.summary = prevSummary
+      })
+      throw err
+    }
   }
 
   const saveProfile = async (profile: UserProfile): Promise<void> => {
@@ -213,7 +334,9 @@ export function createHowToLiveController(): HowToLiveClientController {
     store,
     ensureLoaded,
     refresh,
+    refreshState,
     openItemDetail,
+    goBackItemDetail,
     closeItemDetail,
     setItemProgress,
     saveProfile,

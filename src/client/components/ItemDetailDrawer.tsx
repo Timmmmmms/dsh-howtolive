@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, Modal, Pill, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ItemProgress, ItemStatus, KnowledgeItem, KnowledgeItemSummary } from '../../shared/types.ts'
+import { IconArrowLeft, IconSparkles } from './Icons.tsx'
 import css from './ItemDetailDrawer.module.css'
 
 export interface ItemDetailDrawerProps {
@@ -10,8 +11,11 @@ export interface ItemDetailDrawerProps {
   readonly summaryItem: KnowledgeItemSummary | null
   readonly detail: { readonly item: KnowledgeItem; readonly crossRefs: readonly KnowledgeItemSummary[] } | null
   readonly progress?: ItemProgress | undefined
+  readonly canGoBack?: boolean
+  readonly onGoBack?: () => void
   readonly onClose: () => void
   readonly onJumpToItem: (id: string) => void
+  readonly onAskAi?: (item: KnowledgeItem | KnowledgeItemSummary) => void
   readonly onUpdateProgress: (id: string, patch: { status?: ItemStatus; note?: string }) => Promise<void>
   readonly t: TranslateNS<'howtolive'>
 }
@@ -63,8 +67,11 @@ export function ItemDetailDrawer({
   summaryItem,
   detail,
   progress,
+  canGoBack = false,
+  onGoBack,
   onClose,
   onJumpToItem,
+  onAskAi,
   onUpdateProgress,
   t,
 }: ItemDetailDrawerProps) {
@@ -72,11 +79,12 @@ export function ItemDetailDrawer({
   const currentNote = progress?.note ?? ''
   const [noteDraft, setNoteDraft] = useState(currentNote)
   const [savingNote, setSavingNote] = useState(false)
-  const [noteSaved, setNoteSaved] = useState(false)
+  const [saveState, setSaveState] = useState<'idle' | 'saved' | 'autoSaved'>('idle')
+  const savingRef = useRef(false)
 
   useEffect(() => {
     setNoteDraft(currentNote)
-    setNoteSaved(false)
+    setSaveState('idle')
   }, [item?.id, currentNote])
 
   const status: ItemStatus = progress?.status ?? 'todo'
@@ -91,20 +99,41 @@ export function ItemDetailDrawer({
 
   if (!open || !item) return null
 
-  const handleSaveNote = async () => {
+  const saveNoteIfDirty = async (mode: 'manual' | 'auto'): Promise<void> => {
+    if (savingRef.current) return
+    if (noteDraft === currentNote) return
+    savingRef.current = true
     setSavingNote(true)
     try {
       await onUpdateProgress(item.id, { note: noteDraft })
-      setNoteSaved(true)
+      setSaveState(mode === 'auto' ? 'autoSaved' : 'saved')
+    } catch {
+      // 错误由上层统一 Toast 提示，保留草稿便于重试
     } finally {
+      savingRef.current = false
       setSavingNote(false)
     }
+  }
+
+  const handleClose = () => {
+    void saveNoteIfDirty('auto')
+    onClose()
+  }
+
+  const handleJump = (targetId: string) => {
+    void saveNoteIfDirty('auto')
+    onJumpToItem(targetId)
+  }
+
+  const handleGoBack = () => {
+    void saveNoteIfDirty('auto')
+    onGoBack?.()
   }
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title={`${item.id} · ${item.title}`}
       description={`${item.chapterTitle}${item.topic ? ` · ${item.topic}` : ''}`}
       closeLabel={t('drawer.close')}
@@ -135,12 +164,36 @@ export function ItemDetailDrawer({
               {t('item.status.skipped')}
             </Button>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            {t('drawer.close')}
-          </Button>
+          <div className={css.footerRight}>
+            {onAskAi && (
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<IconSparkles size={14} />}
+                onClick={() => {
+                  void saveNoteIfDirty('auto')
+                  onAskAi(detail?.item ?? item)
+                }}
+              >
+                {t('drawer.askAi')}
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={handleClose}>
+              {t('drawer.close')}
+            </Button>
+          </div>
         </div>
       }
     >
+      {canGoBack && onGoBack && (
+        <div className={css.backRow}>
+          <button type="button" className={css.backBtn} onClick={handleGoBack}>
+            <IconArrowLeft size={14} />
+            <span>{t('drawer.back')}</span>
+          </button>
+        </div>
+      )}
+
       <div className={css.badges}>
         <span className={css.itemId}>{item.id}</span>
         <Tag tone={item.roiTier === 'S' ? 'warning' : item.roiTier === 'A' ? 'info' : 'neutral'}>
@@ -202,7 +255,7 @@ export function ItemDetailDrawer({
               <span className={css.sectionLabel}>{t('drawer.crossRefs')}</span>
               <div className={css.refsGrid}>
                 {detail.crossRefs.map((ref) => (
-                  <Pill key={ref.id} onClick={() => onJumpToItem(ref.id)}>
+                  <Pill key={ref.id} onClick={() => handleJump(ref.id)}>
                     {ref.id} · {ref.title}
                   </Pill>
                 ))}
@@ -221,16 +274,27 @@ export function ItemDetailDrawer({
             placeholder={t('drawer.notePlaceholder')}
             onChange={(e) => {
               setNoteDraft(e.target.value)
-              setNoteSaved(false)
+              setSaveState('idle')
+            }}
+            onBlur={() => {
+              void saveNoteIfDirty('auto')
             }}
           />
           <div className={css.noteBar}>
-            <span className={css.savedTip}>{noteSaved ? t('drawer.noteSaved') : ''}</span>
+            <span className={css.savedTip}>
+              {savingNote
+                ? t('drawer.noteSaving')
+                : saveState === 'autoSaved'
+                  ? t('drawer.noteAutoSaved')
+                  : saveState === 'saved'
+                    ? t('drawer.noteSaved')
+                    : ''}
+            </span>
             <Button
               variant="outline"
               size="sm"
               disabled={savingNote || noteDraft === currentNote}
-              onClick={() => void handleSaveNote()}
+              onClick={() => void saveNoteIfDirty('manual')}
             >
               {t('drawer.saveNote')}
             </Button>

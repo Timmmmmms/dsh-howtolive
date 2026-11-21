@@ -137,6 +137,15 @@
   margin: 0;
   text-align: left;
   cursor: pointer;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.bodyTrigger:focus-visible,
+.checkBtn:focus-visible,
+.iconAction:focus-visible,
+.detailBtn:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
 }
 
 .title {

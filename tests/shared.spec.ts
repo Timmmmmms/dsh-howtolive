@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   SCENARIOS,
   buildCheckupPrompt,
+  buildItemActionPrompt,
   buildScenarioPrompt,
   computeLevelInfo,
   computeScoreSummary,
   DEFAULT_DIMENSIONS,
 } from '../src/shared/index.ts'
+import { en, zh } from '../src/client/locales.ts'
 import type { ItemProgress, KnowledgeItemSummary } from '../src/shared/types.ts'
 
 function makeItem(partial: Partial<KnowledgeItemSummary> & { id: string }): KnowledgeItemSummary {
@@ -81,5 +83,23 @@ describe('shared scoring & levels', () => {
     expect(scenarioPrompt).toContain('裁员')
     expect(scenarioPrompt).toContain('26-35 岁')
     expect(scenarioPrompt).toContain('howtolive_get_item')
+
+    const itemPrompt = buildItemActionPrompt(makeItem({ id: '14-01', title: '开启两步验证' }), {
+      occupation: 'programmer',
+    })
+    expect(itemPrompt).toContain('14-01')
+    expect(itemPrompt).toContain('开启两步验证')
+    expect(itemPrompt).toContain('程序员')
+    expect(itemPrompt).toContain('howtolive_get_item')
+  })
+
+  it('双语词典 zh 与 en 键完全对齐且无空值', () => {
+    const zhKeys = Object.keys(zh).sort()
+    const enKeys = Object.keys(en).sort()
+    expect(enKeys).toEqual(zhKeys)
+    for (const k of zhKeys) {
+      expect(zh[k as keyof typeof zh].trim().length).toBeGreaterThan(0)
+      expect(en[k as keyof typeof en].trim().length).toBeGreaterThan(0)
+    }
   })
 })

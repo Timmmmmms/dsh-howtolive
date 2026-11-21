@@ -10,6 +10,7 @@ export const HOWTOLIVE_TOOL_NAMES = new Set([
   'howtolive_search',
   'howtolive_get_item',
   'howtolive_update_item',
+  'howtolive_batch_update_items',
 ])
 
 /** 聊天流内嵌补丁卡片展示的精简条目 */
@@ -176,7 +177,7 @@ export const howtoliveTurnDefinition: ConversationNodeDefinition<HowToLiveTurnSt
     const message = match.event.data.message
     if (message.isError === true) return context.state
 
-    if (call.name === 'howtolive_update_item') {
+    if (call.name === 'howtolive_update_item' || call.name === 'howtolive_batch_update_items') {
       return { ...context.state, hasUpdate: true }
     }
 

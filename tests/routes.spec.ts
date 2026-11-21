@@ -85,5 +85,49 @@ describe('Host JSON API Routes', () => {
     expect(md).toContain('我的人生补丁配置单')
     expect(md).toContain('01-02')
     expect(md).toContain('eternity4719/HowToLiveBetter')
+
+    // 轻量 /state 接口：只返回 state + summary + dailyPickItem，不返回全量 items
+    const lightState = await call(`${API_PREFIX}/state`, 'GET')
+    expect(lightState.status).toBe(200)
+    expect(lightState.data.state).toBeTruthy()
+    expect(lightState.data.summary).toBeTruthy()
+    expect('items' in lightState.data).toBe(false)
+
+    // /progress 支持复检周期与复检时间
+    const progReview = await call(`${API_PREFIX}/progress`, 'POST', {
+      id: '01-01',
+      reviewIntervalDays: 365,
+      lastReviewedAt: '2026-11-21T00:00:00.000Z',
+    })
+    expect(progReview.status).toBe(200)
+    const progEntry = (progReview.data.state as { progress: Record<string, { reviewIntervalDays?: number; lastReviewedAt?: string }> }).progress['01-01']
+    expect(progEntry?.reviewIntervalDays).toBe(365)
+    expect(progEntry?.lastReviewedAt).toBe('2026-11-21T00:00:00.000Z')
+
+    // 非法 reviewIntervalDays 返回 400
+    const badReview = await call(`${API_PREFIX}/progress`, 'POST', {
+      id: '01-01',
+      reviewIntervalDays: 'abc',
+    })
+    expect(badReview.status).toBe(400)
+
+    // /state/export 与 /state/import JSON 备份恢复
+    const exported = await call(`${API_PREFIX}/state/export`, 'GET')
+    expect(exported.status).toBe(200)
+    expect(String(exported.data.filename)).toMatch(/^life-patch-state-.*\.json$/)
+
+    // 清空进度后通过 /state/import 恢复
+    await stateStore.importState({ version: 1, profile: {}, progress: {} })
+    expect(Object.keys(stateStore.getSnapshot().progress).length).toBe(0)
+
+    const imported = await call(`${API_PREFIX}/state/import`, 'POST', exported.data)
+    expect(imported.status).toBe(200)
+    expect(imported.data.ok).toBe(true)
+    expect(stateStore.getSnapshot().progress['01-01']?.status).toBe('done')
+    expect(stateStore.getSnapshot().progress['01-01']?.reviewIntervalDays).toBe(365)
+
+    // 非法导入体返回 400
+    const badImport = await call(`${API_PREFIX}/state/import`, 'POST', { version: 999 })
+    expect(badImport.status).toBe(400)
   })
 })

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { IconSearchOutlineRegular, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ChapterInfo, DimensionId, DimensionMeta, ItemStatus, RoiTier } from '../../shared/types.ts'
-import { IconSliders } from './Icons.tsx'
+import type { ChapterInfo, DimensionId, DimensionMeta, ItemStatus, RoiTier, SortMode } from '../../shared/types.ts'
+import type { HowToLiveLocaleKey } from '../locales.ts'
+import { IconSliders, IconX } from './Icons.tsx'
 import css from './FilterBar.module.css'
 
 export interface FilterState {
@@ -15,6 +16,7 @@ export interface FilterState {
   readonly zeroCostOnly: boolean
   readonly gradeAOnly: boolean
   readonly audience: string
+  readonly sort: SortMode
 }
 
 export const DEFAULT_FILTERS: FilterState = {
@@ -26,6 +28,7 @@ export const DEFAULT_FILTERS: FilterState = {
   zeroCostOnly: false,
   gradeAOnly: false,
   audience: '',
+  sort: 'chapter',
 }
 
 export interface FilterBarProps {
@@ -36,16 +39,26 @@ export interface FilterBarProps {
   readonly shownCount: number
   readonly totalCount: number
   readonly skippedCount: number
+  /** 是否启用 `/` 快捷键聚焦搜索框（弹窗打开时可禁用） */
+  readonly shortcutEnabled?: boolean
   readonly onChange: (next: FilterState) => void
   readonly t: TranslateNS<'howtolive'>
 }
 
-const STATUS_OPTIONS: ReadonlyArray<{ value: ItemStatus | 'all'; labelKey: 'filter.status.all' | 'filter.status.todo' | 'filter.status.planned' | 'filter.status.done' | 'filter.status.skipped' }> = [
+const STATUS_OPTIONS: ReadonlyArray<{ value: ItemStatus | 'all'; labelKey: HowToLiveLocaleKey }> = [
   { value: 'all', labelKey: 'filter.status.all' },
   { value: 'todo', labelKey: 'filter.status.todo' },
   { value: 'planned', labelKey: 'filter.status.planned' },
   { value: 'done', labelKey: 'filter.status.done' },
   { value: 'skipped', labelKey: 'filter.status.skipped' },
+]
+
+const SORT_OPTIONS: ReadonlyArray<{ value: SortMode; labelKey: HowToLiveLocaleKey }> = [
+  { value: 'chapter', labelKey: 'filter.sort.chapter' },
+  { value: 'roi', labelKey: 'filter.sort.roi' },
+  { value: 'zeroCost', labelKey: 'filter.sort.zeroCost' },
+  { value: 'xp', labelKey: 'filter.sort.xp' },
+  { value: 'noted', labelKey: 'filter.sort.noted' },
 ]
 
 /**
@@ -61,10 +74,39 @@ export function FilterBar({
   shownCount,
   totalCount,
   skippedCount,
+  shortcutEnabled = true,
   onChange,
   t,
 }: FilterBarProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const searchWrapRef = useRef<HTMLDivElement>(null)
+
+  const focusSearchInput = () => {
+    const input = searchWrapRef.current?.querySelector('input')
+    input?.focus()
+  }
+
+  // 全局 `/` 快捷键聚焦搜索框（在输入态或弹窗态下自动让位）
+  useEffect(() => {
+    if (!shortcutEnabled) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (
+        target
+        && (target.tagName === 'INPUT'
+          || target.tagName === 'TEXTAREA'
+          || target.tagName === 'SELECT'
+          || target.isContentEditable)
+      ) {
+        return
+      }
+      e.preventDefault()
+      focusSearchInput()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [shortcutEnabled])
 
   const advancedCount =
     (filters.chapterNumber !== 'all' ? 1 : 0)
@@ -77,6 +119,7 @@ export function FilterBar({
     filters.query !== ''
     || filters.dimension !== 'all'
     || filters.status !== 'all'
+    || filters.sort !== 'chapter'
     || advancedCount > 0
 
   const visibleChapters = filters.dimension === 'all'
@@ -111,16 +154,32 @@ export function FilterBar({
         })}
       </nav>
 
-      {/* 搜索 + 状态分段 + 高级筛选开关 */}
+      {/* 搜索 + 状态分段 + 排序 + 高级筛选开关 */}
       <div className={css.toolRow}>
-        <Input
-          className={css.searchInput}
-          icon={<IconSearchOutlineRegular size={15} />}
-          value={filters.query}
-          placeholder={t('filter.searchPlaceholder')}
-          aria-label={t('filter.searchPlaceholder')}
-          onChange={(e) => onChange({ ...filters, query: e.target.value })}
-        />
+        <div ref={searchWrapRef} className={css.searchWrap}>
+          <Input
+            className={css.searchInput}
+            icon={<IconSearchOutlineRegular size={15} />}
+            value={filters.query}
+            placeholder={t('filter.searchPlaceholder')}
+            aria-label={t('filter.searchPlaceholder')}
+            onChange={(e) => onChange({ ...filters, query: e.target.value })}
+          />
+          {filters.query.length > 0 && (
+            <button
+              type="button"
+              className={css.clearBtn}
+              aria-label={t('filter.clearSearch')}
+              title={t('filter.clearSearch')}
+              onClick={() => {
+                onChange({ ...filters, query: '' })
+                focusSearchInput()
+              }}
+            >
+              <IconX size={13} />
+            </button>
+          )}
+        </div>
 
         <div className={css.segmented} role="group" aria-label={t('filter.status.all')}>
           {STATUS_OPTIONS.map((opt) => (
@@ -136,6 +195,19 @@ export function FilterBar({
           ))}
         </div>
 
+        <select
+          className={css.sortSelect}
+          aria-label={t('filter.sortLabel')}
+          value={filters.sort}
+          onChange={(e) => onChange({ ...filters, sort: e.target.value as SortMode })}
+        >
+          {SORT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {t(opt.labelKey)}
+            </option>
+          ))}
+        </select>
+
         <button
           type="button"
           className={clsx(css.advToggle, (advancedOpen || advancedCount > 0) && css.advToggleActive)}
@@ -143,7 +215,7 @@ export function FilterBar({
           onClick={() => setAdvancedOpen((v) => !v)}
         >
           <IconSliders size={14} />
-          <span>{t('filter.tierS').includes('S') ? '筛选' : 'Filter'}</span>
+          <span>{t('filter.advanced')}</span>
           {advancedCount > 0 && <span className={css.advBadge}>{advancedCount}</span>}
         </button>
       </div>

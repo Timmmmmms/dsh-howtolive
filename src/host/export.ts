@@ -18,9 +18,21 @@ export function buildPatchReportMarkdown(
   const plannedItems: KnowledgeItemSummary[] = []
   const doneSItems: KnowledgeItemSummary[] = []
   const doneOtherCountByDim = new Map<string, number>()
+  const notedItems: Array<{ item: KnowledgeItemSummary; status: string; note: string }> = []
+
+  const statusLabel: Record<string, string> = {
+    todo: '未做',
+    planned: '行动清单',
+    done: '已做到',
+    skipped: '不适用',
+  }
 
   for (const item of knowledge.allSummaries) {
-    const status = state.progress[item.id]?.status ?? 'todo'
+    const prog = state.progress[item.id]
+    const status = prog?.status ?? 'todo'
+    if (prog?.note && prog.note.trim()) {
+      notedItems.push({ item, status: statusLabel[status] ?? status, note: prog.note.trim() })
+    }
     if (status === 'planned') {
       plannedItems.push(item)
     } else if (status === 'done') {
@@ -75,6 +87,28 @@ export function buildPatchReportMarkdown(
     for (const item of doneSItems) {
       const note = state.progress[item.id]?.note
       lines.push(`- [x] **[${item.id}] ${item.title}**（${item.chapterTitle} · +${item.xp} XP）${note ? ` — _${note}_` : ''}`)
+    }
+  }
+
+  const totalOtherDone = [...doneOtherCountByDim.values()].reduce((acc, n) => acc + n, 0)
+  lines.push('', `## 5. 其他已完成补丁汇总（A/B/C 级，共 ${totalOtherDone} 条）`, '')
+  if (totalOtherDone === 0) {
+    lines.push('暂无已完成的 A/B/C 级补丁。')
+  } else {
+    for (const dim of summary.dimensions) {
+      const cnt = doneOtherCountByDim.get(dim.id) ?? 0
+      if (cnt > 0) {
+        lines.push(`- **${dim.name}**：已完成 ${cnt} 条 A/B/C 级补丁`)
+      }
+    }
+  }
+
+  lines.push('', `## 6. 我的私有笔记汇编（${notedItems.length} 条）`, '')
+  if (notedItems.length === 0) {
+    lines.push('暂无记录个人私有笔记。')
+  } else {
+    for (const entry of notedItems) {
+      lines.push(`- **[${entry.item.id}] ${entry.item.title}**（${entry.status} · ${entry.item.roiTier}级）：${entry.note}`)
     }
   }
 

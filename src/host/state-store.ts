@@ -6,6 +6,7 @@ import type {
   DailyPickState,
   HowToLiveState,
   ItemProgress,
+  ItemProgressPatch,
   ItemStatus,
   UserProfile,
 } from '../shared/types.ts'
@@ -26,6 +27,12 @@ function createEmptyState(): HowToLiveState {
   }
 }
 
+function parseReviewInterval(val: unknown): number | undefined {
+  if (typeof val !== 'number' || !Number.isFinite(val)) return undefined
+  const rounded = Math.floor(val)
+  return rounded > 0 ? rounded : undefined
+}
+
 function normalizeState(raw: unknown): HowToLiveState {
   if (typeof raw !== 'object' || raw === null) return createEmptyState()
   const obj = raw as Record<string, unknown>
@@ -39,9 +46,15 @@ function normalizeState(raw: unknown): HowToLiveState {
       const rec = entry as Record<string, unknown>
       const status = rec.status
       if (status === 'todo' || status === 'planned' || status === 'done' || status === 'skipped') {
+        const reviewIntervalDays = parseReviewInterval(rec.reviewIntervalDays)
+        const lastReviewedAt = typeof rec.lastReviewedAt === 'string' && rec.lastReviewedAt.trim().length > 0
+          ? rec.lastReviewedAt.trim()
+          : undefined
         progress[id] = {
           status,
           ...(typeof rec.note === 'string' && rec.note.length > 0 ? { note: rec.note } : {}),
+          ...(reviewIntervalDays !== undefined ? { reviewIntervalDays } : {}),
+          ...(lastReviewedAt !== undefined ? { lastReviewedAt } : {}),
           updatedAt: typeof rec.updatedAt === 'string' ? rec.updatedAt : new Date().toISOString(),
         }
       }
@@ -149,27 +162,54 @@ export class StateStore {
     mkdirSync(path.dirname(this.filePath), { recursive: true })
   }
 
-  /** 更新单条条目状态与/或个人笔记 */
-  async updateItemProgress(
+  /** 内部构建单条更新后的 progress 项 */
+  private applyProgressPatch(
+    nextProgress: Record<string, ItemProgress>,
     itemId: string,
-    patch: { status?: ItemStatus; note?: string },
-  ): Promise<{ previousStatus: ItemStatus; currentStatus: ItemStatus; state: HowToLiveState }> {
-    const prev = this.state.progress[itemId]
+    patch: ItemProgressPatch,
+    now: string,
+  ): { previousStatus: ItemStatus; currentStatus: ItemStatus } {
+    const prev = nextProgress[itemId]
     const previousStatus: ItemStatus = prev?.status ?? 'todo'
     const currentStatus: ItemStatus = patch.status ?? previousStatus
     const nextNote = patch.note !== undefined ? patch.note.trim() : prev?.note
-    const now = new Date().toISOString()
 
-    const nextProgress = { ...this.state.progress }
-    if (currentStatus === 'todo' && !nextNote) {
+    const nextReviewIntervalDays = patch.reviewIntervalDays !== undefined
+      ? (patch.reviewIntervalDays === null ? undefined : parseReviewInterval(patch.reviewIntervalDays))
+      : prev?.reviewIntervalDays
+
+    const nextLastReviewedAt = patch.lastReviewedAt !== undefined
+      ? (patch.lastReviewedAt === null || !patch.lastReviewedAt.trim() ? undefined : patch.lastReviewedAt.trim())
+      : prev?.lastReviewedAt
+
+    if (
+      currentStatus === 'todo'
+      && !nextNote
+      && nextReviewIntervalDays === undefined
+      && nextLastReviewedAt === undefined
+    ) {
       delete nextProgress[itemId]
     } else {
       nextProgress[itemId] = {
         status: currentStatus,
         ...(nextNote ? { note: nextNote } : {}),
+        ...(nextReviewIntervalDays !== undefined ? { reviewIntervalDays: nextReviewIntervalDays } : {}),
+        ...(nextLastReviewedAt !== undefined ? { lastReviewedAt: nextLastReviewedAt } : {}),
         updatedAt: now,
       }
     }
+
+    return { previousStatus, currentStatus }
+  }
+
+  /** 更新单条条目状态、个人笔记或复检周期 */
+  async updateItemProgress(
+    itemId: string,
+    patch: ItemProgressPatch,
+  ): Promise<{ previousStatus: ItemStatus; currentStatus: ItemStatus; state: HowToLiveState }> {
+    const now = new Date().toISOString()
+    const nextProgress = { ...this.state.progress }
+    const { previousStatus, currentStatus } = this.applyProgressPatch(nextProgress, itemId, patch, now)
 
     const nextState: HowToLiveState = {
       ...this.state,
@@ -178,6 +218,55 @@ export class StateStore {
     }
     await this.persist(nextState)
     return { previousStatus, currentStatus, state: nextState }
+  }
+
+  /** 一次性批量更新多条条目进度（单次原子落盘） */
+  async updateItemsProgressBatch(
+    updates: ReadonlyArray<{ id: string } & ItemProgressPatch>,
+  ): Promise<{
+    changes: Array<{ id: string; previousStatus: ItemStatus; currentStatus: ItemStatus }>
+    state: HowToLiveState
+  }> {
+    const now = new Date().toISOString()
+    const nextProgress = { ...this.state.progress }
+    const changes: Array<{ id: string; previousStatus: ItemStatus; currentStatus: ItemStatus }> = []
+
+    for (const entry of updates) {
+      const { id, ...patch } = entry
+      const { previousStatus, currentStatus } = this.applyProgressPatch(nextProgress, id, patch, now)
+      changes.push({ id, previousStatus, currentStatus })
+    }
+
+    const nextState: HowToLiveState = {
+      ...this.state,
+      progress: nextProgress,
+      updatedAt: now,
+    }
+    await this.persist(nextState)
+    return { changes, state: nextState }
+  }
+
+  /** 导入并恢复完整的本地状态 JSON 备份（自动校验与规范化） */
+  async importState(raw: unknown): Promise<HowToLiveState> {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new Error('无效的状态备份数据：根节点必须是对象')
+    }
+    const obj = raw as Record<string, unknown>
+    if (obj.version !== undefined && obj.version !== 1) {
+      throw new Error(`不支持的状态版本号：${String(obj.version)}`)
+    }
+    if (obj.progress !== undefined && (typeof obj.progress !== 'object' || obj.progress === null || Array.isArray(obj.progress))) {
+      throw new Error('无效的状态备份数据：progress 必须是对象')
+    }
+    if (obj.profile !== undefined && (typeof obj.profile !== 'object' || obj.profile === null || Array.isArray(obj.profile))) {
+      throw new Error('无效的状态备份数据：profile 必须是对象')
+    }
+    const normalized = normalizeState(obj)
+    const nextState: HowToLiveState = {
+      ...normalized,
+      updatedAt: new Date().toISOString(),
+    }
+    return this.persist(nextState)
   }
 
   /** 更新本地个人画像 */

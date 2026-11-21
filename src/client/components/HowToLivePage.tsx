@@ -1,13 +1,30 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import clsx from 'clsx'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import { buildCheckupPrompt, buildScenarioPrompt } from '../../shared/scenarios.ts'
-import type { ItemStatus, ScenarioPreset, UserProfile } from '../../shared/types.ts'
+import { buildCheckupPrompt, buildItemActionPrompt, buildScenarioPrompt } from '../../shared/scenarios.ts'
+import type {
+  ItemProgressPatch,
+  ItemStatus,
+  KnowledgeItem,
+  KnowledgeItemSummary,
+  ProgressUpdateResult,
+  RoiTier,
+  ScenarioPreset,
+  UserProfile,
+} from '../../shared/types.ts'
 import type { HowToLiveViewSnapshot } from '../store.ts'
 import { DailyPickCard } from './DailyPickCard.tsx'
 import { DEFAULT_FILTERS, FilterBar, type FilterState } from './FilterBar.tsx'
-import { IconDownload, IconRefresh, IconShieldCheck, IconSparkles, IconUser } from './Icons.tsx'
+import {
+  IconArrowUp,
+  IconDownload,
+  IconRefresh,
+  IconShieldCheck,
+  IconSparkles,
+  IconUser,
+} from './Icons.tsx'
 import { ItemCard } from './ItemCard.tsx'
 import { ItemDetailDrawer } from './ItemDetailDrawer.tsx'
 import { LifeRadarCard } from './LifeRadarCard.tsx'
@@ -16,6 +33,18 @@ import { ScenarioBar } from './ScenarioBar.tsx'
 import css from './HowToLivePage.module.css'
 
 const PAGE_SIZE = 30
+const FOCUS_REFRESH_THROTTLE_MS = 15_000
+const TIER_RANK: Record<RoiTier, number> = { S: 0, A: 1, B: 2, C: 3 }
+
+interface ToastState {
+  readonly id: number
+  readonly message: string
+  readonly tone: 'success' | 'info' | 'error'
+  readonly action?: {
+    readonly label: string
+    readonly onClick: () => void
+  }
+}
 
 export interface HowToLivePageInjected {
   readonly hooks: {
@@ -23,9 +52,11 @@ export interface HowToLivePageInjected {
   }
   readonly ensureLoaded: () => Promise<void>
   readonly refresh: () => Promise<void>
-  readonly openItemDetail: (id: string) => Promise<void>
+  readonly refreshState?: () => Promise<void>
+  readonly openItemDetail: (id: string, options?: { pushHistory?: boolean }) => Promise<void>
+  readonly goBackItemDetail?: () => Promise<void>
   readonly closeItemDetail: () => void
-  readonly setItemProgress: (id: string, patch: { status?: ItemStatus; note?: string }) => Promise<unknown>
+  readonly setItemProgress: (id: string, patch: ItemProgressPatch) => Promise<ProgressUpdateResult | unknown>
   readonly saveProfile: (profile: UserProfile) => Promise<void>
   readonly rerollDaily: () => Promise<void>
   readonly exportMarkdown: () => Promise<{ filename: string; markdown: string }>
@@ -45,7 +76,9 @@ export function HowToLivePage(props: HowToLivePageProps) {
     useHowtolive,
     ensureLoaded,
     refresh,
+    refreshState,
     openItemDetail,
+    goBackItemDetail,
     closeItemDetail,
     setItemProgress,
     saveProfile,
@@ -60,19 +93,69 @@ export function HowToLivePage(props: HowToLivePageProps) {
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [toast, setToast] = useState<ToastState | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [profileGuideForCheckup, setProfileGuideForCheckup] = useState(false)
+  const [showBackToTop, setShowBackToTop] = useState(false)
+
+  const pageScrollRef = useRef<HTMLDivElement>(null)
+  const filterSectionRef = useRef<HTMLDivElement>(null)
+  const lastFocusRefreshRef = useRef<number>(Date.now())
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const toastSeqRef = useRef(0)
+
+  const clearToastTimer = useCallback(() => {
+    if (toastTimerRef.current !== null) {
+      clearTimeout(toastTimerRef.current)
+      toastTimerRef.current = null
+    }
+  }, [])
+
+  const showToast = useCallback(
+    (
+      message: string,
+      options?: {
+        tone?: 'success' | 'info' | 'error'
+        durationMs?: number
+        action?: { label: string; onClick: () => void }
+      },
+    ) => {
+      clearToastTimer()
+      const id = ++toastSeqRef.current
+      setToast({
+        id,
+        message,
+        tone: options?.tone ?? 'success',
+        ...(options?.action ? { action: options.action } : {}),
+      })
+      const duration = options?.durationMs ?? 3200
+      toastTimerRef.current = setTimeout(() => {
+        setToast((cur) => (cur?.id === id ? null : cur))
+        toastTimerRef.current = null
+      }, duration)
+    },
+    [clearToastTimer],
+  )
+
+  useEffect(() => {
+    return () => {
+      clearToastTimer()
+    }
+  }, [clearToastTimer])
 
   useEffect(() => {
     void ensureLoaded()
     const handleFocus = () => {
-      void refresh()
+      const now = Date.now()
+      if (now - lastFocusRefreshRef.current < FOCUS_REFRESH_THROTTLE_MS) return
+      lastFocusRefreshRef.current = now
+      void (refreshState ? refreshState() : refresh())
     }
     window.addEventListener('focus', handleFocus)
     return () => {
       window.removeEventListener('focus', handleFocus)
     }
-  }, [ensureLoaded, refresh])
+  }, [ensureLoaded, refresh, refreshState])
 
   // 筛选条件改变时重置分页窗口，避免列表位置错乱
   useEffect(() => {
@@ -83,7 +166,7 @@ export function HowToLivePage(props: HowToLivePageProps) {
     const tokens = filters.query.trim().toLowerCase().split(/\s+/).filter(Boolean)
     const progress = snap.state?.progress ?? {}
 
-    return snap.items.filter((item) => {
+    const matched = snap.items.filter((item) => {
       if (filters.dimension !== 'all' && item.dimension !== filters.dimension) return false
       if (filters.chapterNumber !== 'all' && item.chapterNumber !== filters.chapterNumber) return false
       if (filters.tier !== 'all' && item.roiTier !== filters.tier) return false
@@ -103,6 +186,38 @@ export function HowToLivePage(props: HowToLivePageProps) {
       }
       return true
     })
+
+    if (filters.sort === 'chapter') {
+      return matched
+    }
+
+    const compareByBook = (a: KnowledgeItemSummary, b: KnowledgeItemSummary) =>
+      a.chapterNumber - b.chapterNumber || a.number - b.number
+
+    return [...matched].sort((a, b) => {
+      switch (filters.sort) {
+        case 'roi':
+          return TIER_RANK[a.roiTier] - TIER_RANK[b.roiTier]
+            || b.roiScore - a.roiScore
+            || compareByBook(a, b)
+        case 'zeroCost': {
+          const aZero = a.tags?.money === '0' ? 0 : 1
+          const bZero = b.tags?.money === '0' ? 0 : 1
+          const aNoWill = a.tags?.willpower === '否' ? 0 : 1
+          const bNoWill = b.tags?.willpower === '否' ? 0 : 1
+          return aZero - bZero || aNoWill - bNoWill || b.roiScore - a.roiScore || compareByBook(a, b)
+        }
+        case 'xp':
+          return b.xp - a.xp || b.roiScore - a.roiScore || compareByBook(a, b)
+        case 'noted': {
+          const aNoted = progress[a.id]?.note?.trim() ? 0 : 1
+          const bNoted = progress[b.id]?.note?.trim() ? 0 : 1
+          return aNoted - bNoted || compareByBook(a, b)
+        }
+        default:
+          return compareByBook(a, b)
+      }
+    })
   }, [snap.items, snap.state?.progress, filters])
 
   const visibleItems = useMemo(
@@ -110,14 +225,60 @@ export function HowToLivePage(props: HowToLivePageProps) {
     [filteredItems, visibleCount],
   )
 
-  const handleSetStatus = async (id: string, status: ItemStatus) => {
-    setBusyId(id)
-    try {
-      await setItemProgress(id, { status })
-    } finally {
-      setBusyId(null)
-    }
-  }
+  const handleUpdateProgress = useCallback(
+    async (id: string, patch: ItemProgressPatch) => {
+      const prevLevel = snap.summary?.level.level ?? 1
+      const prevStatus: ItemStatus = snap.state?.progress[id]?.status ?? 'todo'
+      setBusyId(id)
+      try {
+        const res = (await setItemProgress(id, patch)) as Partial<ProgressUpdateResult> | undefined
+        if (patch.status === 'done' && prevStatus !== 'done') {
+          const xpDelta = typeof res?.xpDelta === 'number' ? res.xpDelta : 0
+          const afterLevel = res?.summary?.level
+          if (xpDelta > 0 && afterLevel && afterLevel.level > prevLevel) {
+            showToast(
+              t('toast.levelUp', {
+                xp: xpDelta,
+                prev: prevLevel,
+                level: afterLevel.level,
+                title: afterLevel.title,
+              }),
+              { tone: 'success', durationMs: 4200 },
+            )
+          } else if (xpDelta > 0) {
+            showToast(t('toast.xpGain', { xp: xpDelta }), { tone: 'success', durationMs: 2600 })
+          }
+        } else if (patch.status === 'skipped' && prevStatus !== 'skipped') {
+          showToast(t('toast.skipped'), {
+            tone: 'info',
+            durationMs: 4000,
+            action: {
+              label: t('toast.undo'),
+              onClick: () => {
+                clearToastTimer()
+                setToast(null)
+                void setItemProgress(id, { status: prevStatus })
+                  .then(() => {
+                    showToast(t('toast.undone'), { tone: 'info', durationMs: 2000 })
+                  })
+                  .catch((err: unknown) => {
+                    const message = err instanceof Error ? err.message : String(err)
+                    showToast(t('toast.updateError', { message }), { tone: 'error', durationMs: 4000 })
+                  })
+              },
+            },
+          })
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        showToast(t('toast.updateError', { message }), { tone: 'error', durationMs: 4000 })
+        throw err
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [snap.summary?.level.level, snap.state?.progress, setItemProgress, showToast, clearToastTimer, t],
+  )
 
   const hasProfile = useMemo(() => {
     const p = snap.state?.profile
@@ -132,11 +293,6 @@ export function HowToLivePage(props: HowToLivePageProps) {
     )
   }, [snap.state?.profile])
 
-  const showTempNotice = (msg: string) => {
-    setNotice(msg)
-    setTimeout(() => setNotice(null), 3200)
-  }
-
   const handleExport = async () => {
     const { filename, markdown } = await exportMarkdown()
     const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
@@ -148,29 +304,61 @@ export function HowToLivePage(props: HowToLivePageProps) {
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
-    showTempNotice(t('action.exportDone'))
+    showToast(t('action.exportDone'), { tone: 'success' })
   }
 
   const handleSync = async () => {
     try {
       await syncUpstream()
-      showTempNotice(t('page.syncSuccess'))
+      showToast(t('page.syncSuccess'), { tone: 'success' })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
-      showTempNotice(t('page.syncError', { message }))
+      showToast(t('page.syncError', { message }), { tone: 'error', durationMs: 4200 })
     }
   }
 
-  const handleCheckup = (profileOverride?: UserProfile) => {
+  const runCheckup = (profileOverride?: UserProfile) => {
     const profile = profileOverride ?? snap.state?.profile ?? {}
     const prompt = buildCheckupPrompt(profile, snap.summary ?? undefined)
     void launchPromptSession(prompt)
+  }
+
+  const handleCheckupClick = () => {
+    if (!hasProfile) {
+      setProfileGuideForCheckup(true)
+      setProfileOpen(true)
+      return
+    }
+    runCheckup()
   }
 
   const handleScenario = (scenario: ScenarioPreset) => {
     const profile = snap.state?.profile ?? {}
     const prompt = buildScenarioPrompt(scenario, profile)
     void launchPromptSession(prompt)
+  }
+
+  const handleAskAiForItem = (item: KnowledgeItem | KnowledgeItemSummary) => {
+    const profile = snap.state?.profile ?? {}
+    const prompt = buildItemActionPrompt(item, profile)
+    closeItemDetail()
+    void launchPromptSession(prompt)
+  }
+
+  const handleSelectRadarDimension = (dim: FilterState['dimension']) => {
+    setFilters((prev) => ({ ...prev, dimension: dim, chapterNumber: 'all' }))
+    if (dim !== 'all') {
+      filterSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
+  const handlePageScroll = () => {
+    const top = pageScrollRef.current?.scrollTop ?? 0
+    setShowBackToTop(top > 480)
+  }
+
+  const scrollToTop = () => {
+    pageScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   const selectedSummary = useMemo(
@@ -180,7 +368,7 @@ export function HowToLivePage(props: HowToLivePageProps) {
 
   return (
     <div className={css.page}>
-      <div className={css.pageScroll}>
+      <div ref={pageScrollRef} className={css.pageScroll} onScroll={handlePageScroll}>
         <div className={css.pageContent}>
           <header className={css.pageHeading}>
             <div className={css.brandCluster}>
@@ -197,7 +385,10 @@ export function HowToLivePage(props: HowToLivePageProps) {
                 variant="outline"
                 size="sm"
                 icon={<IconUser size={14} />}
-                onClick={() => setProfileOpen(true)}
+                onClick={() => {
+                  setProfileGuideForCheckup(false)
+                  setProfileOpen(true)
+                }}
                 disabled={snap.status !== 'ready'}
               >
                 {hasProfile ? t('action.profileConfigured') : t('action.profile')}
@@ -216,15 +407,13 @@ export function HowToLivePage(props: HowToLivePageProps) {
                 variant="primary"
                 size="sm"
                 icon={<IconSparkles size={14} />}
-                onClick={() => handleCheckup()}
+                onClick={handleCheckupClick}
                 disabled={snap.status !== 'ready'}
               >
                 {t('action.checkup')}
               </Button>
             </div>
           </header>
-
-          {notice && <div className={css.noticeBanner}>{notice}</div>}
 
           {snap.status === 'loading' || snap.status === 'idle' ? (
             <div className={css.stateCard}>{t('page.loading')}</div>
@@ -242,7 +431,7 @@ export function HowToLivePage(props: HowToLivePageProps) {
                   <LifeRadarCard
                     summary={snap.summary}
                     activeDimension={filters.dimension}
-                    onSelectDimension={(dim) => setFilters((prev) => ({ ...prev, dimension: dim, chapterNumber: 'all' }))}
+                    onSelectDimension={handleSelectRadarDimension}
                     t={t}
                   />
                   <DailyPickCard
@@ -250,7 +439,7 @@ export function HowToLivePage(props: HowToLivePageProps) {
                     itemStatus={snap.dailyPickItem ? (snap.state?.progress[snap.dailyPickItem.id]?.status ?? 'todo') : 'todo'}
                     xpFeedback={snap.xpFeedback}
                     onMarkStatus={async (id, status) => {
-                      await setItemProgress(id, { status })
+                      await handleUpdateProgress(id, { status })
                     }}
                     onReroll={rerollDaily}
                     onOpenDetail={(id) => void openItemDetail(id)}
@@ -262,17 +451,20 @@ export function HowToLivePage(props: HowToLivePageProps) {
               <ScenarioBar onSelectScenario={handleScenario} t={t} />
 
               {snap.meta && (
-                <FilterBar
-                  filters={filters}
-                  dimensions={snap.meta.dimensions}
-                  chapters={snap.chapters}
-                  audiences={snap.meta.stats.topAudiences}
-                  shownCount={filteredItems.length}
-                  totalCount={snap.items.length}
-                  skippedCount={snap.summary?.skippedCount ?? 0}
-                  onChange={setFilters}
-                  t={t}
-                />
+                <div ref={filterSectionRef}>
+                  <FilterBar
+                    filters={filters}
+                    dimensions={snap.meta.dimensions}
+                    chapters={snap.chapters}
+                    audiences={snap.meta.stats.topAudiences}
+                    shownCount={filteredItems.length}
+                    totalCount={snap.items.length}
+                    skippedCount={snap.summary?.skippedCount ?? 0}
+                    shortcutEnabled={!profileOpen && snap.selectedItemId === null}
+                    onChange={setFilters}
+                    t={t}
+                  />
+                </div>
               )}
 
               <section className={css.listSection} aria-label={t('page.title')}>
@@ -286,7 +478,9 @@ export function HowToLivePage(props: HowToLivePageProps) {
                         item={item}
                         progress={snap.state?.progress[item.id]}
                         busy={busyId === item.id}
-                        onSetStatus={(id, status) => void handleSetStatus(id, status)}
+                        onSetStatus={(id, status) => {
+                          void handleUpdateProgress(id, { status }).catch(() => undefined)
+                        }}
                         onOpenDetail={(id) => void openItemDetail(id)}
                         t={t}
                       />
@@ -340,16 +534,66 @@ export function HowToLivePage(props: HowToLivePageProps) {
         </div>
       </div>
 
+      {showBackToTop && (
+        <button
+          type="button"
+          className={css.backToTopBtn}
+          aria-label={t('page.backToTop')}
+          title={t('page.backToTop')}
+          onClick={scrollToTop}
+        >
+          <IconArrowUp size={15} />
+          <span>{t('page.backToTop')}</span>
+        </button>
+      )}
+
+      {toast && (
+        <div
+          key={toast.id}
+          role="status"
+          aria-live="polite"
+          className={clsx(
+            css.toast,
+            toast.tone === 'error' && css.toastError,
+            toast.tone === 'info' && css.toastInfo,
+          )}
+        >
+          <span className={css.toastMessage}>{toast.message}</span>
+          {toast.action && (
+            <button
+              type="button"
+              className={css.toastActionBtn}
+              onClick={toast.action.onClick}
+            >
+              {toast.action.label}
+            </button>
+          )}
+        </div>
+      )}
+
       <ProfileModal
         open={profileOpen}
         profile={snap.state?.profile ?? {}}
-        onClose={() => setProfileOpen(false)}
+        onClose={() => {
+          setProfileOpen(false)
+          setProfileGuideForCheckup(false)
+        }}
         onSave={saveProfile}
         onSaveAndCheckup={async (profile) => {
           await saveProfile(profile)
           setProfileOpen(false)
-          handleCheckup(profile)
+          setProfileGuideForCheckup(false)
+          runCheckup(profile)
         }}
+        {...(profileGuideForCheckup
+          ? {
+              onSkipToCheckup: () => {
+                setProfileOpen(false)
+                setProfileGuideForCheckup(false)
+                runCheckup({})
+              },
+            }
+          : {})}
         t={t}
       />
 
@@ -359,10 +603,15 @@ export function HowToLivePage(props: HowToLivePageProps) {
         summaryItem={selectedSummary}
         detail={snap.selectedItemId ? (snap.detailCache[snap.selectedItemId] ?? null) : null}
         progress={snap.selectedItemId ? snap.state?.progress[snap.selectedItemId] : undefined}
+        canGoBack={(snap.detailHistory?.length ?? 0) > 0 && goBackItemDetail !== undefined}
+        onGoBack={() => {
+          if (goBackItemDetail) void goBackItemDetail()
+        }}
         onClose={closeItemDetail}
-        onJumpToItem={(id) => void openItemDetail(id)}
+        onJumpToItem={(id) => void openItemDetail(id, { pushHistory: true })}
+        onAskAi={handleAskAiForItem}
         onUpdateProgress={async (id, patch) => {
-          await setItemProgress(id, patch)
+          await handleUpdateProgress(id, patch)
         }}
         t={t}
       />
