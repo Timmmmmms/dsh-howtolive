@@ -2,12 +2,20 @@ import { useId } from 'react'
 import clsx from 'clsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { DimensionId, ScoreSummary } from '../../shared/types.ts'
+import { IconAward, IconClock } from './Icons.tsx'
 import css from './LifeRadarCard.module.css'
 
 export interface LifeRadarCardProps {
   readonly summary: ScoreSummary
   readonly activeDimension: DimensionId | 'all'
   readonly onSelectDimension: (dim: DimensionId | 'all') => void
+  /** 已解锁徽章数 / 总徽章数（传入 onOpenBadges 时在头部展示徽章墙入口） */
+  readonly badgeUnlockedCount?: number
+  readonly badgeTotalCount?: number
+  readonly onOpenBadges?: () => void
+  /** 到期待复检补丁数（> 0 时展示一键巡检提醒） */
+  readonly dueReviewCount?: number
+  readonly onFilterDueReview?: () => void
   readonly t: TranslateNS<'howtolive'>
 }
 
@@ -40,6 +48,11 @@ export function LifeRadarCard({
   summary,
   activeDimension,
   onSelectDimension,
+  badgeUnlockedCount = 0,
+  badgeTotalCount = 0,
+  onOpenBadges,
+  dueReviewCount = 0,
+  onFilterDueReview,
   t,
 }: LifeRadarCardProps) {
   const radarFillId = useId()
@@ -63,10 +76,22 @@ export function LifeRadarCard({
           <h2 className={css.title}>{t('radar.title')}</h2>
           <span className={css.hint}>{t('radar.clickHint')}</span>
         </div>
-        <span className={css.levelBadge}>
-          <span className={css.levelDot} aria-hidden="true" />
-          Lv.{summary.level.level} {summary.level.title}
-        </span>
+        <div className={css.headerActions}>
+          {onOpenBadges && badgeTotalCount > 0 && (
+            <button
+              type="button"
+              className={css.badgesBtn}
+              onClick={onOpenBadges}
+            >
+              <IconAward size={13} />
+              <span>{t('radar.badges', { unlocked: badgeUnlockedCount, total: badgeTotalCount })}</span>
+            </button>
+          )}
+          <span className={css.levelBadge}>
+            <span className={css.levelDot} aria-hidden="true" />
+            Lv.{summary.level.level} {summary.level.title}
+          </span>
+        </div>
       </div>
 
       <div className={css.body}>
@@ -179,6 +204,16 @@ export function LifeRadarCard({
                   </span>
                 )}
               </div>
+              {dueReviewCount > 0 && onFilterDueReview && (
+                <button
+                  type="button"
+                  className={css.dueReviewBtn}
+                  onClick={onFilterDueReview}
+                >
+                  <IconClock size={13} />
+                  <span>{t('radar.dueReview', { count: dueReviewCount })}</span>
+                </button>
+              )}
             </div>
           </div>
 

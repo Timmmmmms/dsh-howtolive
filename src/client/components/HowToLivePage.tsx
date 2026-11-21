@@ -3,7 +3,9 @@ import clsx from 'clsx'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import { computeBadges } from '../../shared/badges.ts'
 import { scanLifeVulnerabilities } from '../../shared/cve.ts'
+import { countDueReviewItems, isItemDueForReview } from '../../shared/scoring.ts'
 import {
   buildChaosDrillPrompt,
   buildCheckupPrompt,
@@ -23,6 +25,7 @@ import type {
   ViewMode,
 } from '../../shared/types.ts'
 import type { HowToLiveViewSnapshot } from '../store.ts'
+import { BadgesModal } from './BadgesModal.tsx'
 import { CveScannerView } from './CveScannerView.tsx'
 import { DailyPickCard } from './DailyPickCard.tsx'
 import { DEFAULT_FILTERS, FilterBar, type FilterState } from './FilterBar.tsx'
@@ -30,6 +33,7 @@ import {
   IconArrowUp,
   IconDownload,
   IconRefresh,
+  IconShareCard,
   IconShieldCheck,
   IconSparkles,
   IconUser,
@@ -40,6 +44,7 @@ import { LifeRadarCard } from './LifeRadarCard.tsx'
 import { PatchSprintModal } from './PatchSprintModal.tsx'
 import { ProfileModal } from './ProfileModal.tsx'
 import { ScenarioBar } from './ScenarioBar.tsx'
+import { ShareCardModal } from './ShareCardModal.tsx'
 import css from './HowToLivePage.module.css'
 
 const PAGE_SIZE = 30
@@ -108,6 +113,8 @@ export function HowToLivePage(props: HowToLivePageProps) {
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileGuideForCheckup, setProfileGuideForCheckup] = useState(false)
   const [sprintOpen, setSprintOpen] = useState(false)
+  const [badgesOpen, setBadgesOpen] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
 
   const pageScrollRef = useRef<HTMLDivElement>(null)
@@ -189,6 +196,7 @@ export function HowToLivePage(props: HowToLivePageProps) {
       }
       const status: ItemStatus = progress[item.id]?.status ?? 'todo'
       if (filters.status !== 'all' && status !== filters.status) return false
+      if (filters.dueReviewOnly && !isItemDueForReview(progress[item.id])) return false
 
       if (tokens.length > 0) {
         const hay = `${item.id} ${item.title} ${item.plain} ${item.cost} ${item.chapterTitle} ${item.topic ?? ''} ${(item.tags?.audience ?? []).join(' ')}`.toLowerCase()
@@ -260,6 +268,19 @@ export function HowToLivePage(props: HowToLivePageProps) {
     return scanLifeVulnerabilities(scoped, snap.state?.progress ?? {}, snap.state?.profile)
   }, [snap.items, snap.state?.progress, snap.state?.profile, filters])
 
+  const badges = useMemo(
+    () => computeBadges(snap.items, snap.state?.progress ?? {}, snap.summary ?? undefined),
+    [snap.items, snap.state?.progress, snap.summary],
+  )
+  const unlockedBadgeCount = useMemo(
+    () => badges.filter((b) => b.unlocked).length,
+    [badges],
+  )
+  const dueReviewCount = useMemo(
+    () => snap.summary?.dueReviewCount ?? countDueReviewItems(snap.items, snap.state?.progress ?? {}),
+    [snap.summary?.dueReviewCount, snap.items, snap.state?.progress],
+  )
+
   const handleUpdateProgress = useCallback(
     async (id: string, patch: ItemProgressPatch) => {
       const prevLevel = snap.summary?.level.level ?? 1
@@ -303,6 +324,8 @@ export function HowToLivePage(props: HowToLivePageProps) {
               },
             },
           })
+        } else if (patch.lastReviewedAt && patch.status === undefined && patch.reviewIntervalDays === undefined) {
+          showToast(t('review.reviewedToast'), { tone: 'success', durationMs: 2400 })
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err)
@@ -395,6 +418,12 @@ export function HowToLivePage(props: HowToLivePageProps) {
     }
   }
 
+  const handleFilterDueReview = () => {
+    setViewMode('cards')
+    setFilters((prev) => ({ ...prev, status: 'done', dueReviewOnly: true }))
+    filterSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   const handlePageScroll = () => {
     const top = pageScrollRef.current?.scrollTop ?? 0
     setShowBackToTop(top > 480)
@@ -439,6 +468,15 @@ export function HowToLivePage(props: HowToLivePageProps) {
               <Button
                 variant="outline"
                 size="sm"
+                icon={<IconShareCard size={14} />}
+                onClick={() => setShareOpen(true)}
+                disabled={snap.status !== 'ready' || !snap.summary}
+              >
+                {t('action.shareCard')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 icon={<IconDownload size={14} />}
                 onClick={() => void handleExport()}
                 disabled={snap.status !== 'ready'}
@@ -475,6 +513,11 @@ export function HowToLivePage(props: HowToLivePageProps) {
                     summary={snap.summary}
                     activeDimension={filters.dimension}
                     onSelectDimension={handleSelectRadarDimension}
+                    badgeUnlockedCount={unlockedBadgeCount}
+                    badgeTotalCount={badges.length}
+                    onOpenBadges={() => setBadgesOpen(true)}
+                    dueReviewCount={dueReviewCount}
+                    onFilterDueReview={handleFilterDueReview}
                     t={t}
                   />
                   <DailyPickCard
@@ -508,10 +551,11 @@ export function HowToLivePage(props: HowToLivePageProps) {
                     shownCount={viewMode === 'cve' ? cveReport.vulnerabilities.length : filteredItems.length}
                     totalCount={snap.items.length}
                     skippedCount={snap.summary?.skippedCount ?? 0}
-                    shortcutEnabled={!profileOpen && !sprintOpen && snap.selectedItemId === null}
+                    shortcutEnabled={!profileOpen && !sprintOpen && !badgesOpen && !shareOpen && snap.selectedItemId === null}
                     viewMode={viewMode}
                     onViewModeChange={setViewMode}
                     cveCriticalCount={cveReport.criticalCount}
+                    dueReviewCount={dueReviewCount}
                     onChange={setFilters}
                     t={t}
                   />
@@ -542,6 +586,9 @@ export function HowToLivePage(props: HowToLivePageProps) {
                           busy={busyId === item.id}
                           onSetStatus={(id, status) => {
                             void handleUpdateProgress(id, { status }).catch(() => undefined)
+                          }}
+                          onReviewItem={(id) => {
+                            void handleUpdateProgress(id, { lastReviewedAt: new Date().toISOString() }).catch(() => undefined)
                           }}
                           onOpenDetail={(id) => void openItemDetail(id)}
                           t={t}
@@ -672,6 +719,24 @@ export function HowToLivePage(props: HowToLivePageProps) {
           await handleUpdateProgress(id, { status })
         }}
         onOpenDetail={(id) => void openItemDetail(id)}
+        t={t}
+      />
+
+      <BadgesModal
+        open={badgesOpen}
+        badges={badges}
+        onClose={() => setBadgesOpen(false)}
+        t={t}
+      />
+
+      <ShareCardModal
+        open={shareOpen}
+        summary={snap.summary}
+        items={snap.items}
+        progress={snap.state?.progress ?? {}}
+        profile={snap.state?.profile}
+        onClose={() => setShareOpen(false)}
+        onNotify={(msg, tone) => showToast(msg, { tone: tone ?? 'success' })}
         t={t}
       />
 

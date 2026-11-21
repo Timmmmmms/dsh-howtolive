@@ -48,6 +48,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconSearchOutlineRegular: () => <span aria-hidden="true">🔍</span>,
 }))
 
+import { BadgesModal } from '../src/client/components/BadgesModal.tsx'
 import { CveScannerView } from '../src/client/components/CveScannerView.tsx'
 import { LifeRadarCard } from '../src/client/components/LifeRadarCard.tsx'
 import { DailyPickCard } from '../src/client/components/DailyPickCard.tsx'
@@ -55,11 +56,13 @@ import { DEFAULT_FILTERS, FilterBar } from '../src/client/components/FilterBar.t
 import { ItemDetailDrawer } from '../src/client/components/ItemDetailDrawer.tsx'
 import { PatchSprintModal } from '../src/client/components/PatchSprintModal.tsx'
 import { ScenarioBar } from '../src/client/components/ScenarioBar.tsx'
+import { ShareCardModal } from '../src/client/components/ShareCardModal.tsx'
 import { ProfileModal } from '../src/client/components/ProfileModal.tsx'
 import { TurnPatchCard } from '../src/client/components/TurnPatchCard.tsx'
 import { howtoliveTurnDefinition, selectHowToLivePatches } from '../src/client/howtolive-turn.ts'
 import { en, zh, type HowToLiveLocaleKey } from '../src/client/locales.ts'
 import { createHowToLiveController } from '../src/client/store.ts'
+import { computeBadges } from '../src/shared/badges.ts'
 import { scanLifeVulnerabilities } from '../src/shared/cve.ts'
 import { computeScoreSummary, DEFAULT_DIMENSIONS } from '../src/shared/scoring.ts'
 import type { KnowledgeItem, KnowledgeItemSummary } from '../src/shared/types.ts'
@@ -648,5 +651,129 @@ describe('Client components & Turn projection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '3 分钟速刷' }))
     expect(onOpenSprint).toHaveBeenCalledTimes(1)
+  })
+
+  it('Task 2A：BadgesModal 区分已解锁与探索中，LifeRadarCard 支持徽章入口与待复检联动', () => {
+    const progress = {
+      '01-01': {
+        status: 'done' as const,
+        reviewIntervalDays: 90,
+        lastReviewedAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+      },
+    }
+    const summary = computeScoreSummary([SAMPLE_ITEM], progress, DEFAULT_DIMENSIONS, '2026-11-21T00:00:00Z')
+    const badges = computeBadges([SAMPLE_ITEM], progress, summary)
+    const onOpenBadges = vi.fn()
+    const onFilterDueReview = vi.fn()
+
+    render(
+      <LifeRadarCard
+        summary={summary}
+        activeDimension="all"
+        onSelectDimension={() => {}}
+        badgeUnlockedCount={badges.filter((b) => b.unlocked).length}
+        badgeTotalCount={badges.length}
+        onOpenBadges={onOpenBadges}
+        dueReviewCount={summary.dueReviewCount ?? 0}
+        onFilterDueReview={onFilterDueReview}
+        t={t}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /2\/10 徽章/ }))
+    expect(onOpenBadges).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '1 个补丁待复检' }))
+    expect(onFilterDueReview).toHaveBeenCalledTimes(1)
+
+    cleanup()
+    render(<BadgesModal open={true} badges={badges} onClose={() => {}} t={t} />)
+    expect(screen.getByText('已解锁 (2)')).toBeTruthy()
+    expect(screen.getByText('探索中 (8)')).toBeTruthy()
+    expect(screen.getByText('初装补丁')).toBeTruthy()
+    expect(screen.getByText('年度巡检官')).toBeTruthy()
+  })
+
+  it('Task 2B：ShareCardModal 支持主题切换并渲染自包含 SVG 名片预览', () => {
+    const progress = { '01-01': { status: 'done' as const, updatedAt: '2026-11-21T00:00:00Z' } }
+    const summary = computeScoreSummary([SAMPLE_ITEM], progress, DEFAULT_DIMENSIONS)
+    const onNotify = vi.fn()
+    const origCreateObjectURL = URL.createObjectURL
+    const origRevokeObjectURL = URL.revokeObjectURL
+    URL.createObjectURL = vi.fn().mockReturnValue('blob:mock-svg')
+    URL.revokeObjectURL = vi.fn()
+
+    try {
+      render(
+        <ShareCardModal
+          open={true}
+          summary={summary}
+          items={[SAMPLE_ITEM]}
+          progress={progress}
+          onClose={() => {}}
+          onNotify={onNotify}
+          t={t}
+        />,
+      )
+
+      const img = screen.getByRole('img') as HTMLImageElement
+      expect(img.src).toContain('data:image/svg+xml')
+      expect(decodeURIComponent(img.src)).toContain('#0b1020')
+
+      // 切换为杂志亮白风
+      fireEvent.click(screen.getByRole('button', { name: '杂志亮白风' }))
+      expect(decodeURIComponent(img.src)).toContain('#f8fafc')
+
+      // 下载 SVG
+      fireEvent.click(screen.getByRole('button', { name: '下载 SVG' }))
+      expect(onNotify).toHaveBeenCalledWith('已下载人生 OS 名片 SVG', 'success')
+    } finally {
+      URL.createObjectURL = origCreateObjectURL
+      URL.revokeObjectURL = origRevokeObjectURL
+    }
+  })
+
+  it('Task 2C：ItemDetailDrawer 支持对已完成条目配置复检周期与点击完成复检', async () => {
+    const onUpdateProgress = vi.fn().mockResolvedValue(undefined)
+    const item: KnowledgeItem = {
+      ...SAMPLE_ITEM,
+      id: '01-26',
+      title: '备齐灭火器和急救包，每年检查一次',
+      benefit: '火灾与急救底线保障',
+      sources: '消防规范',
+      notes: '每年检查压力表',
+      rawMarkdown: '',
+    }
+
+    render(
+      <ItemDetailDrawer
+        open={true}
+        loading={false}
+        summaryItem={item}
+        detail={{ item, crossRefs: [] }}
+        progress={{
+          status: 'done',
+          reviewIntervalDays: 365,
+          lastReviewedAt: '2024-01-01T00:00:00Z',
+          updatedAt: '2024-01-01T00:00:00Z',
+        }}
+        onClose={() => {}}
+        onJumpToItem={() => {}}
+        onUpdateProgress={onUpdateProgress}
+        t={t}
+      />,
+    )
+
+    expect(screen.getByText('推荐：每 365 天巡检一次')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '每 180 天' }))
+    expect(onUpdateProgress).toHaveBeenCalledWith('01-26', { reviewIntervalDays: 180 })
+
+    fireEvent.click(screen.getByRole('button', { name: '完成复检' }))
+    await waitFor(() => {
+      const lastCall = onUpdateProgress.mock.calls.at(-1)
+      expect(lastCall?.[0]).toBe('01-26')
+      expect(typeof lastCall?.[1]?.lastReviewedAt).toBe('string')
+    })
   })
 })

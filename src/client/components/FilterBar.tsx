@@ -12,7 +12,7 @@ import type {
   ViewMode,
 } from '../../shared/types.ts'
 import type { HowToLiveLocaleKey } from '../locales.ts'
-import { IconLayoutGrid, IconScanRadar, IconSliders, IconX } from './Icons.tsx'
+import { IconClock, IconLayoutGrid, IconScanRadar, IconSliders, IconX } from './Icons.tsx'
 import css from './FilterBar.module.css'
 
 export interface FilterState {
@@ -23,6 +23,7 @@ export interface FilterState {
   readonly tier: RoiTier | 'all'
   readonly zeroCostOnly: boolean
   readonly gradeAOnly: boolean
+  readonly dueReviewOnly: boolean
   readonly audience: string
   readonly sort: SortMode
 }
@@ -35,6 +36,7 @@ export const DEFAULT_FILTERS: FilterState = {
   tier: 'all',
   zeroCostOnly: false,
   gradeAOnly: false,
+  dueReviewOnly: false,
   audience: '',
   sort: 'chapter',
 }
@@ -54,6 +56,8 @@ export interface FilterBarProps {
   readonly onViewModeChange?: (mode: ViewMode) => void
   /** 漏洞扫描未修复高危数角标 */
   readonly cveCriticalCount?: number
+  /** 到期待复检补丁数 */
+  readonly dueReviewCount?: number
   readonly onChange: (next: FilterState) => void
   readonly t: TranslateNS<'howtolive'>
 }
@@ -91,6 +95,7 @@ export function FilterBar({
   viewMode = 'cards',
   onViewModeChange,
   cveCriticalCount = 0,
+  dueReviewCount = 0,
   onChange,
   t,
 }: FilterBarProps) {
@@ -136,6 +141,7 @@ export function FilterBar({
     || filters.dimension !== 'all'
     || filters.status !== 'all'
     || filters.sort !== 'chapter'
+    || filters.dueReviewOnly
     || advancedCount > 0
 
   const visibleChapters = filters.dimension === 'all'
@@ -268,6 +274,24 @@ export function FilterBar({
           <span>{t('filter.advanced')}</span>
           {advancedCount > 0 && <span className={css.advBadge}>{advancedCount}</span>}
         </button>
+
+        {viewMode === 'cards' && (dueReviewCount > 0 || filters.dueReviewOnly) && (
+          <button
+            type="button"
+            className={clsx(css.dueToggle, filters.dueReviewOnly && css.dueToggleActive)}
+            aria-pressed={filters.dueReviewOnly}
+            onClick={() =>
+              onChange({
+                ...filters,
+                dueReviewOnly: !filters.dueReviewOnly,
+                status: !filters.dueReviewOnly ? 'done' : filters.status,
+              })
+            }
+          >
+            <IconClock size={13} />
+            <span>{t('review.filterPill', { count: dueReviewCount })}</span>
+          </button>
+        )}
       </div>
 
       {/* 可折叠高级筛选面板 */}

@@ -302,6 +302,40 @@
   font-variant-numeric: tabular-nums;
 }
 
+.dueToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 11px;
+  border-radius: var(--dsw-radius-md);
+  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-warn-label) 40%, var(--dsw-alias-border-l2));
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-label) 10%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 160ms var(--ds-ease-in-out), border-color 160ms var(--ds-ease-in-out);
+}
+
+.dueToggleActive {
+  border-color: var(--dsw-alias-state-warn-label);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-label) 22%, var(--dsw-alias-bg-layer-1));
+}
+
+.dueToggle:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .dueToggle:hover {
+    background: color-mix(in srgb, var(--dsw-alias-state-warn-label) 18%, var(--dsw-alias-bg-layer-1));
+  }
+}
+
 .advPanel {
   display: flex;
   flex-direction: column;

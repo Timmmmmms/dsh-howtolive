@@ -48,6 +48,69 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
+.headerActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badgesBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 160ms var(--ds-ease-in-out), border-color 160ms var(--ds-ease-in-out), color 160ms var(--ds-ease-in-out);
+}
+
+.badgesBtn:focus-visible,
+.dueReviewBtn:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .badgesBtn:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+    border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 42%, var(--dsw-alias-border-l2));
+    color: var(--dsw-alias-label-primary);
+  }
+}
+
+.dueReviewBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-warn-label) 40%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-label) 12%, transparent);
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 11.5px;
+  line-height: 16px;
+  font-weight: 600;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+  transition: background-color 160ms var(--ds-ease-in-out);
+}
+
+@media (hover: hover) {
+  .dueReviewBtn:hover {
+    background: color-mix(in srgb, var(--dsw-alias-state-warn-label) 20%, transparent);
+  }
+}
+
 .levelBadge {
   display: inline-flex;
   align-items: center;

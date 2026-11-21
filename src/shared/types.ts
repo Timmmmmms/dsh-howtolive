@@ -253,6 +253,8 @@ export interface ScoreSummary {
   overallRate: number
   dimensions: DimensionScore[]
   weakestDimension: DimensionScore | null
+  /** 已到期需要定期复检的补丁数量（不扣除已获 XP） */
+  dueReviewCount?: number
 }
 
 /** 情景急救箱预设 */

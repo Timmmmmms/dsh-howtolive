@@ -4,13 +4,21 @@ import {
   buildChaosDrillPrompt,
   buildCheckupPrompt,
   buildItemActionPrompt,
+  buildLifeOsCardSvg,
   buildScenarioPrompt,
   buildSprintDeck,
+  computeBadges,
   computeLevelInfo,
+  computeLifeOsProfile,
   computeScoreSummary,
+  countDueReviewItems,
   countSprintModeAvailability,
   DEFAULT_DIMENSIONS,
   formatLifeCveId,
+  getItemNextReviewDate,
+  getRecommendedReviewInterval,
+  isItemDueForReview,
+  resolveLifeOsArchetypeKey,
   scanLifeVulnerabilities,
   selectChaosDrillCandidates,
 } from '../src/shared/index.ts'
@@ -247,5 +255,160 @@ describe('shared scoring & levels', () => {
 
     const plannedDeck = buildSprintDeck({ mode: 'planned', items, progress, summary })
     expect(plannedDeck.map((i) => i.id)).toEqual(['05-01'])
+  })
+
+  it('Task 2A：computeBadges 正确计算 10 枚成就徽章及边界条件', () => {
+    // 1. 空进度时全部未解锁
+    const emptyBadges = computeBadges([], {})
+    expect(emptyBadges).toHaveLength(10)
+    expect(emptyBadges.every((b) => !b.unlocked)).toBe(true)
+
+    // 2. 构造覆盖多维度、章节 13/14/19、零成本、skipped、笔记与复检的数据集
+    const items: KnowledgeItemSummary[] = []
+    const progress: Record<string, ItemProgress> = {}
+    const now = '2026-11-21T00:00:00Z'
+
+    // 20 条零花钱不靠毅力 S 级（同时覆盖第 13 章 5 条 S 级急救）
+    for (let i = 1; i <= 20; i++) {
+      const ch = i <= 5 ? 13 : 1
+      const id = `${String(ch).padStart(2, '0')}-${String(i).padStart(2, '0')}`
+      items.push(makeItem({
+        id,
+        chapterNumber: ch,
+        number: i,
+        dimension: 'survival',
+        roiTier: 'S',
+        tags: { money: '0', time: '0', willpower: '否', benefit: '大', metric: '', audience: [], raw: '' },
+      }))
+      progress[id] = {
+        status: 'done',
+        ...(i <= 5 ? { note: `笔记 ${i}` } : {}),
+        ...(i === 1 ? { reviewIntervalDays: 180, lastReviewedAt: now } : {}),
+        updatedAt: now,
+      }
+    }
+
+    // 15 条 skipped
+    for (let i = 1; i <= 15; i++) {
+      const id = `05-${String(i).padStart(2, '0')}`
+      items.push(makeItem({ id, chapterNumber: 5, number: i, dimension: 'wealth', roiTier: 'B' }))
+      progress[id] = { status: 'skipped', updatedAt: now }
+    }
+
+    // 第 14 章 5 条：4 条 done + 1 条 skipped => 有效完成率 100% >= 80%
+    for (let i = 1; i <= 5; i++) {
+      const id = `14-${String(i).padStart(2, '0')}`
+      items.push(makeItem({ id, chapterNumber: 14, number: i, dimension: 'resilience', roiTier: 'A' }))
+      progress[id] = { status: i <= 4 ? 'done' : 'skipped', updatedAt: now }
+    }
+
+    // 第 19 章 5 条：4 条 done + 1 条 todo => 80%
+    for (let i = 1; i <= 5; i++) {
+      const id = `19-${String(i).padStart(2, '0')}`
+      items.push(makeItem({ id, chapterNumber: 19, number: i, dimension: 'career', roiTier: 'A' }))
+      if (i <= 4) progress[id] = { status: 'done', updatedAt: now }
+    }
+
+    // 补齐其余维度（wealth / legal / family）各 1 条 done 达标 >= 20%
+    const extraDims: Array<{ id: string; ch: number; dim: KnowledgeItemSummary['dimension'] }> = [
+      { id: '05-99', ch: 5, dim: 'wealth' },
+      { id: '08-01', ch: 8, dim: 'legal' },
+      { id: '10-01', ch: 10, dim: 'family' },
+    ]
+    for (const d of extraDims) {
+      items.push(makeItem({ id: d.id, chapterNumber: d.ch, dimension: d.dim }))
+      progress[d.id] = { status: 'done', updatedAt: now }
+    }
+
+    const badges = computeBadges(items, progress)
+    const byId = Object.fromEntries(badges.map((b) => [b.id, b]))
+
+    expect(byId['first-patch']?.unlocked).toBe(true)
+    expect(byId['zero-cost-master']?.unlocked).toBe(true)
+    expect(byId['clear-declutter']?.unlocked).toBe(true)
+    expect(byId['cyber-armor']?.unlocked).toBe(true)
+    expect(byId['golden-four-min']?.unlocked).toBe(true)
+    expect(byId['labor-law-dict']?.unlocked).toBe(true)
+    expect(byId['hexagon-warrior']?.unlocked).toBe(true)
+    expect(byId['s-tier-hunter']?.unlocked).toBe(true)
+    expect(byId['note-keeper']?.unlocked).toBe(true)
+    expect(byId['annual-inspector']?.unlocked).toBe(true)
+  })
+
+  it('Task 2B：computeLifeOsProfile 与 buildLifeOsCardSvg 严格脱敏且生成自包含 SVG', () => {
+    const items: KnowledgeItemSummary[] = [
+      makeItem({ id: '01-01', dimension: 'survival', roiTier: 'S', xp: 40 }),
+      makeItem({ id: '01-02', number: 2, dimension: 'survival', roiTier: 'S', xp: 40 }),
+      makeItem({ id: '05-01', chapterNumber: 5, dimension: 'wealth', roiTier: 'B', xp: 15 }),
+    ]
+    const progress: Record<string, ItemProgress> = {
+      '01-01': { status: 'done', note: '绝对不能泄露的私密笔记12345', updatedAt: '2026-11-21T00:00:00Z' },
+      '01-02': { status: 'done', updatedAt: '2026-11-21T00:00:00Z' },
+    }
+    const summary = computeScoreSummary(items, progress, DEFAULT_DIMENSIONS)
+    const osProfile = computeLifeOsProfile(summary, items, progress, {
+      occupation: 'programmer',
+      customNote: '绝对不能泄露的个人画像备注XYZ',
+    })
+
+    expect(osProfile.version).toMatch(/^LifeOS v\d+\.\d+\.\d+-(lts|stable|beta)$/)
+    expect(resolveLifeOsArchetypeKey(summary)).toBe('longevity-monk')
+    expect(osProfile.featuredBadges.some((b) => b.id === 'first-patch')).toBe(true)
+
+    const serialized = JSON.stringify(osProfile)
+    expect(serialized).not.toContain('私密笔记12345')
+    expect(serialized).not.toContain('个人画像备注XYZ')
+
+    const svg = buildLifeOsCardSvg(osProfile, {
+      theme: 'dark',
+      archetypeTitle: '长命百岁月光族 <Test & Co>',
+      archetypeTagline: '生命防线拉满',
+      securityLabel: 'Hardened',
+      coverageLabel: '总体覆盖率',
+      levelLabel: 'Lv.1 初装补丁 · 80 XP',
+      badgesTitle: '代表徽章',
+      noBadgesLabel: '暂无徽章',
+      watermark: 'HowToLiveBetter',
+    })
+
+    expect(svg).toContain('<svg xmlns="http://www.w3.org/2000/svg"')
+    expect(svg).toContain('&lt;Test &amp; Co&gt;')
+    expect(svg).not.toContain('var(--dsw-')
+    expect(svg).not.toContain('私密笔记12345')
+  })
+
+  it('Task 2C：isItemDueForReview 与 countDueReviewItems 正确处理时区、闰年、旧数据且不扣除 XP', () => {
+    // 未设置复检周期（旧版 state.json）永不到期
+    expect(isItemDueForReview({ status: 'done', updatedAt: '2020-01-01T00:00:00Z' }, '2026-11-21T00:00:00Z')).toBe(false)
+    // 非 done 状态即使有 reviewIntervalDays 也不触发到期
+    expect(
+      isItemDueForReview(
+        { status: 'planned', reviewIntervalDays: 90, updatedAt: '2020-01-01T00:00:00Z' },
+        '2026-11-21T00:00:00Z',
+      ),
+    ).toBe(false)
+
+    // 闰年精确天数边界（2024 年 2 月有 29 天，1 月 1 日 + 90 天 = 2024-03-31T00:00:00Z）
+    const leapProgress: ItemProgress = {
+      status: 'done',
+      reviewIntervalDays: 90,
+      lastReviewedAt: '2024-01-01T08:00:00+08:00', // 等价 2024-01-01T00:00:00Z
+      updatedAt: '2024-01-01T00:00:00Z',
+    }
+    expect(getItemNextReviewDate(leapProgress)?.toISOString()).toBe('2024-03-31T00:00:00.000Z')
+    expect(isItemDueForReview(leapProgress, '2024-03-30T23:59:59Z')).toBe(false)
+    expect(isItemDueForReview(leapProgress, '2024-03-31T00:00:00Z')).toBe(true)
+
+    // 推荐周期映射表与关键词启发式
+    expect(getRecommendedReviewInterval(makeItem({ id: '01-26', title: '灭火器' }))).toBe(365)
+    expect(getRecommendedReviewInterval(makeItem({ id: '14-02', chapterNumber: 14, title: '两步验证' }))).toBe(180)
+
+    // 到期条目计入 dueReviewCount，但绝不扣除已获 XP
+    const items = [makeItem({ id: '01-26', xp: 40 })]
+    const progress: Record<string, ItemProgress> = { '01-26': leapProgress }
+    expect(countDueReviewItems(items, progress, '2024-04-01T00:00:00Z')).toBe(1)
+    const summary = computeScoreSummary(items, progress, DEFAULT_DIMENSIONS, '2024-04-01T00:00:00Z')
+    expect(summary.dueReviewCount).toBe(1)
+    expect(summary.totalXp).toBe(40)
   })
 })

@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { isItemDueForReview } from '../../shared/scoring.ts'
 import type { ItemProgress, ItemStatus, KnowledgeItemSummary } from '../../shared/types.ts'
-import { IconBookmark, IconCheck, IconChevronRight, IconEyeOff } from './Icons.tsx'
+import { IconBookmark, IconCheck, IconChevronRight, IconClock, IconEyeOff } from './Icons.tsx'
 import css from './ItemCard.module.css'
 
 export interface ItemCardProps {
@@ -9,6 +10,7 @@ export interface ItemCardProps {
   readonly progress?: ItemProgress | undefined
   readonly busy?: boolean
   readonly onSetStatus: (id: string, status: ItemStatus) => void
+  readonly onReviewItem?: (id: string) => void
   readonly onOpenDetail: (id: string) => void
   readonly t: TranslateNS<'howtolive'>
 }
@@ -30,10 +32,12 @@ export function ItemCard({
   progress,
   busy = false,
   onSetStatus,
+  onReviewItem,
   onOpenDetail,
   t,
 }: ItemCardProps) {
   const status: ItemStatus = progress?.status ?? 'todo'
+  const dueForReview = isItemDueForReview(progress)
 
   // 只挑选 1 个最具吸引力的亮点标签，避免视觉噪音
   const highlightLabel = item.tags?.money === '0'
@@ -58,7 +62,14 @@ export function ItemCard({
           <span className={clsx(css.tierBadge, tierBadgeClass(item.roiTier))}>
             {item.roiTier}
           </span>
-          {highlightLabel && <span className={css.highlightPill}>{highlightLabel}</span>}
+          {dueForReview ? (
+            <span className={css.duePill}>
+              <IconClock size={11} />
+              <span>{t('review.dueBadge')}</span>
+            </span>
+          ) : (
+            highlightLabel && <span className={css.highlightPill}>{highlightLabel}</span>
+          )}
           <span className={css.chapterText}>{item.chapterTitle}</span>
         </div>
         <span className={css.xpText}>+{item.xp} XP</span>
@@ -113,6 +124,18 @@ export function ItemCard({
           >
             <IconEyeOff size={14} />
           </button>
+
+          {dueForReview && onReviewItem && (
+            <button
+              type="button"
+              className={css.reviewActionBtn}
+              disabled={busy}
+              onClick={() => onReviewItem(item.id)}
+            >
+              <IconClock size={12} />
+              <span>{t('review.markReviewed')}</span>
+            </button>
+          )}
         </div>
 
         <button

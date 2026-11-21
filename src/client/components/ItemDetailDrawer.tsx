@@ -1,8 +1,22 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import clsx from 'clsx'
 import { Button, Modal, Pill, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ItemProgress, ItemStatus, KnowledgeItem, KnowledgeItemSummary } from '../../shared/types.ts'
-import { IconArrowLeft, IconSparkles } from './Icons.tsx'
+import {
+  getItemNextReviewDate,
+  getRecommendedReviewInterval,
+  isItemDueForReview,
+  REVIEW_INTERVAL_OPTIONS,
+} from '../../shared/scoring.ts'
+import type {
+  ItemProgress,
+  ItemProgressPatch,
+  ItemStatus,
+  KnowledgeItem,
+  KnowledgeItemSummary,
+} from '../../shared/types.ts'
+import type { HowToLiveLocaleKey } from '../locales.ts'
+import { IconArrowLeft, IconClock, IconSparkles } from './Icons.tsx'
 import css from './ItemDetailDrawer.module.css'
 
 export interface ItemDetailDrawerProps {
@@ -16,7 +30,7 @@ export interface ItemDetailDrawerProps {
   readonly onClose: () => void
   readonly onJumpToItem: (id: string) => void
   readonly onAskAi?: (item: KnowledgeItem | KnowledgeItemSummary) => void
-  readonly onUpdateProgress: (id: string, patch: { status?: ItemStatus; note?: string }) => Promise<void>
+  readonly onUpdateProgress: (id: string, patch: ItemProgressPatch) => Promise<void>
   readonly t: TranslateNS<'howtolive'>
 }
 
@@ -88,6 +102,14 @@ export function ItemDetailDrawer({
   }, [item?.id, currentNote])
 
   const status: ItemStatus = progress?.status ?? 'todo'
+  const recommendedInterval = useMemo(
+    () => (item ? getRecommendedReviewInterval(item) : null),
+    [item],
+  )
+  const currentInterval = progress?.reviewIntervalDays ?? 0
+  const dueForReview = isItemDueForReview(progress)
+  const nextReviewDate = getItemNextReviewDate(progress)
+
   const sourcesNodes = useMemo(
     () => (detail?.item.sources ? renderTextWithLinks(detail.item.sources) : null),
     [detail?.item.sources],
@@ -263,6 +285,66 @@ export function ItemDetailDrawer({
             </div>
           )}
         </>
+      )}
+
+      {status === 'done' && (
+        <div className={clsx(css.section, dueForReview && css.reviewSectionDue)}>
+          <div className={css.reviewHeader}>
+            <span className={css.sectionLabel}>
+              <IconClock size={13} className={css.inlineIcon} />
+              {t('review.sectionTitle')}
+            </span>
+            {recommendedInterval !== null && (
+              <span className={css.recommendedHint}>
+                {t('review.recommended', { days: recommendedInterval })}
+              </span>
+            )}
+          </div>
+
+          <div className={css.reviewIntervals} role="group" aria-label={t('review.intervalLabel')}>
+            {REVIEW_INTERVAL_OPTIONS.map((days) => {
+              const active = currentInterval === days
+              const labelKey = (days === 0 ? 'review.interval.none' : `review.interval.${days}`) as HowToLiveLocaleKey
+              return (
+                <button
+                  key={days}
+                  type="button"
+                  className={clsx(css.intervalBtn, active && css.intervalBtnActive)}
+                  aria-pressed={active}
+                  onClick={() => {
+                    void onUpdateProgress(item.id, {
+                      reviewIntervalDays: days === 0 ? null : days,
+                      ...(days > 0 && !progress?.lastReviewedAt
+                        ? { lastReviewedAt: new Date().toISOString() }
+                        : {}),
+                    })
+                  }}
+                >
+                  {t(labelKey)}
+                </button>
+              )
+            })}
+          </div>
+
+          {currentInterval > 0 && (
+            <div className={css.reviewMetaRow}>
+              <span className={clsx(css.reviewMetaText, dueForReview && css.reviewDueText)}>
+                {dueForReview
+                  ? t('review.dueDesc')
+                  : nextReviewDate
+                    ? t('review.nextDate', { date: nextReviewDate.toISOString().slice(0, 10) })
+                    : ''}
+              </span>
+              <Button
+                variant={dueForReview ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => void onUpdateProgress(item.id, { lastReviewedAt: new Date().toISOString() })}
+              >
+                {t('review.markReviewed')}
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       <div className={css.section}>

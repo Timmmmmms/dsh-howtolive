@@ -66,14 +66,112 @@ export function computeLevelInfo(totalXp: number): LevelInfo {
   }
 }
 
+const MS_PER_DAY = 86_400_000
+
+/** 复检周期可选项（0 表示不重复） */
+export const REVIEW_INTERVAL_OPTIONS = [0, 90, 180, 365] as const
+
+/** 常见周期性条目的精确推荐复检周期映射表（单位：天） */
+export const RECOMMENDED_REVIEW_INTERVALS: Readonly<Record<string, number>> = {
+  '01-03': 180, // 烟雾报警器 / 一氧化碳报警器电池与自检
+  '01-20': 365, // 流感疫苗年度接种
+  '01-26': 365, // 灭火器、灭火毯、逃生面罩与急救包效期检查
+  '05-44': 365, // 保单受益人与保障范围年度核对
+  '06-18': 365, // 按年龄性别的循证体检筛查
+}
+
+const REVIEW_KEYWORD_RULES: ReadonlyArray<{ readonly pattern: RegExp; readonly days: number }> = [
+  { pattern: /灭火器|急救包|急救箱|报警器|常备药|有效期|过期|效期|逃生面罩/, days: 180 },
+  { pattern: /恢复码|备份|两步验证|密码管理|主密码|账号安全/, days: 180 },
+  { pattern: /体检|筛查|流感疫苗|洗牙|保单|保险受益人|年度/, days: 365 },
+]
+
 /**
- * 计算六维属性得分、总 XP、等级和薄弱维度。
+ * 推导单条建议的推荐复检周期（天数）；非周期性条目返回 null。
+ */
+export function getRecommendedReviewInterval(
+  item: Pick<KnowledgeItemSummary, 'id' | 'chapterNumber' | 'title' | 'plain'>,
+): number | null {
+  const exact = RECOMMENDED_REVIEW_INTERVALS[item.id]
+  if (exact !== undefined) return exact
+
+  const text = `${item.title} ${item.plain}`
+  for (const rule of REVIEW_KEYWORD_RULES) {
+    if (rule.pattern.test(text)) return rule.days
+  }
+
+  // 第 34 章（常备药）与第 14 章（账号与信息安全）默认推荐半年巡检一次
+  if (item.chapterNumber === 34 || item.chapterNumber === 14) {
+    return 180
+  }
+
+  return null
+}
+
+/** 解析时间输入为 UTC 毫秒时间戳，非法输入返回 NaN */
+function toTimestampMs(value: Date | number | string | undefined): number {
+  if (value === undefined) return Number.NaN
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'number') return Number.isFinite(value) ? value : Number.NaN
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : Number.NaN
+}
+
+/**
+ * 计算单条已完成补丁的下一次复检日期；未完成或未配置复检周期返回 null。
+ */
+export function getItemNextReviewDate(progress: ItemProgress | undefined): Date | null {
+  if (!progress || progress.status !== 'done') return null
+  const intervalDays = progress.reviewIntervalDays
+  if (typeof intervalDays !== 'number' || !Number.isFinite(intervalDays) || intervalDays <= 0) {
+    return null
+  }
+  const baseMs = toTimestampMs(progress.lastReviewedAt ?? progress.updatedAt)
+  if (Number.isNaN(baseMs)) return null
+  return new Date(baseMs + Math.floor(intervalDays) * MS_PER_DAY)
+}
+
+/**
+ * 判断单条补丁是否已到期需要复检（严格使用 UTC 毫秒差，避免本地时区与夏令时偏差）。
+ * 注意：到期仅提示巡检，绝不扣除已获 XP。
+ */
+export function isItemDueForReview(
+  progress: ItemProgress | undefined,
+  now: Date | number | string = new Date(),
+): boolean {
+  const nextDate = getItemNextReviewDate(progress)
+  if (!nextDate) return false
+  const nowMs = toTimestampMs(now)
+  if (Number.isNaN(nowMs)) return false
+  return nowMs >= nextDate.getTime()
+}
+
+/**
+ * 统计当前条目集合中已到期需要复检的补丁总数。
+ */
+export function countDueReviewItems(
+  items: readonly Pick<KnowledgeItemSummary, 'id'>[],
+  progressMap: Readonly<Record<string, ItemProgress | undefined>>,
+  now: Date | number | string = new Date(),
+): number {
+  let count = 0
+  for (const item of items) {
+    if (isItemDueForReview(progressMap[item.id], now)) {
+      count++
+    }
+  }
+  return count
+}
+
+/**
+ * 计算六维属性得分、总 XP、等级、薄弱维度和待复检数。
  * 公式：完成率 = done / (total - skipped)，跳过（不适用）的条目从分母中剔除。
  */
 export function computeScoreSummary(
   items: readonly KnowledgeItemSummary[],
   progressMap: Readonly<Record<string, ItemProgress | undefined>>,
   dimensionsMeta: readonly DimensionMeta[] = DEFAULT_DIMENSIONS,
+  now: Date | number | string = new Date(),
 ): ScoreSummary {
   const buckets = new Map<
     DimensionId,
@@ -155,6 +253,8 @@ export function computeScoreSummary(
     }
   }
 
+  const dueReviewCount = countDueReviewItems(items, progressMap, now)
+
   return {
     totalXp,
     level: computeLevelInfo(totalXp),
@@ -166,5 +266,6 @@ export function computeScoreSummary(
     overallRate,
     dimensions,
     weakestDimension,
+    dueReviewCount,
   }
 }
