@@ -57,7 +57,7 @@ export function apply(ctx: Context): void {
 }
 
 export { KnowledgeStore, resolvePackageRoot, toItemSummary } from './knowledge-store.ts'
-export { StateStore, resolveStateFilePath } from './state-store.ts'
+export { StateStore, resolveStateFilePath, resolveWorkspaceDirPath } from './state-store.ts'
 export { registerHowToLiveTools } from './tools.ts'
 export { createHowToLiveRoutes, API_PREFIX } from './routes.ts'
 export { buildPatchReportMarkdown } from './export.ts'

@@ -18,6 +18,11 @@ export function resolveStateFilePath(customPath?: string): string {
   return path.join(dshHome, 'plugins', 'howtolive', 'state.json')
 }
 
+/** 解析人生补丁专属工作区目录：位于 state.json 同级目录下的 workspace 子目录 */
+export function resolveWorkspaceDirPath(stateFilePath?: string): string {
+  return path.join(path.dirname(resolveStateFilePath(stateFilePath)), 'workspace')
+}
+
 function createEmptyState(): HowToLiveState {
   return {
     version: 1,

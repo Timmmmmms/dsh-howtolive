@@ -140,5 +140,14 @@ describe('Host JSON API Routes', () => {
     expect(batchRes.status).toBe(200)
     expect(batchRes.data.updatedCount).toBe(2)
     expect((batchRes.data.summary as { skippedCount: number }).skippedCount).toBe(2)
+
+    // /workspace 确保专属工作区目录已创建并返回规范路径与默认名称
+    const wsRes = await call(`${API_PREFIX}/workspace`, 'POST', {})
+    expect(wsRes.status).toBe(200)
+    expect(wsRes.data.defaultTitle).toBe('人生补丁')
+    const wsPath = String(wsRes.data.path)
+    expect(path.basename(wsPath)).toBe('workspace')
+    const stat = await fs.stat(wsPath)
+    expect(stat.isDirectory()).toBe(true)
   })
 })

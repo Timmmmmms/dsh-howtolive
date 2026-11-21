@@ -62,6 +62,7 @@ import { ProfileModal } from '../src/client/components/ProfileModal.tsx'
 import { ProfileSkipWizardModal } from '../src/client/components/ProfileSkipWizardModal.tsx'
 import { TurnPatchCard } from '../src/client/components/TurnPatchCard.tsx'
 import { howtoliveTurnDefinition, selectHowToLivePatches } from '../src/client/howtolive-turn.ts'
+import { createPromptSessionLauncher } from '../src/client/index.ts'
 import { en, zh, type HowToLiveLocaleKey } from '../src/client/locales.ts'
 import { createHowToLiveController } from '../src/client/store.ts'
 import { computeBadges } from '../src/shared/badges.ts'
@@ -900,5 +901,190 @@ describe('Client components & Turn projection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '智能筛查不适用 (5)' }))
     expect(onOpenSkipWizard).toHaveBeenCalledTimes(1)
+  })
+
+  it('createPromptSessionLauncher 首次在专属目录创建「人生补丁」工作区并触发会话', async () => {
+    const promptFn = vi.fn(async () => ({ ok: true }))
+    const releaseFn = vi.fn()
+    const createWs = vi.fn(async ({ path: wsPath }: { path: string }) => ({
+      workspaceId: 'ws-howtolive' as never,
+      path: wsPath,
+      title: 'workspace',
+      sessionIds: [],
+      createdAt: '2026-11-21T00:00:00Z',
+      updatedAt: '2026-11-21T00:00:00Z',
+    }))
+    const renameWs = vi.fn(async () => ({
+      workspaceId: 'ws-howtolive' as never,
+      path: 'C:\\Users\\demo\\.dsh\\plugins\\howtolive\\workspace',
+      title: '人生补丁',
+      sessionIds: [],
+      createdAt: '2026-11-21T00:00:00Z',
+      updatedAt: '2026-11-21T00:00:00Z',
+    }))
+    const connectWorkspace = vi.fn(async () => 'sess-1' as never)
+    const openSession = vi.fn()
+    const startSession = vi.fn()
+
+    const launch = createPromptSessionLauncher({
+      ensureWorkspaceDir: async () => ({
+        path: 'C:\\Users\\demo\\.dsh\\plugins\\howtolive\\workspace',
+        defaultTitle: '人生补丁',
+      }),
+      workspaces: {
+        list: {
+          getSnapshot: () => ({
+            items: [
+              {
+                workspaceId: 'ws-other' as never,
+                path: 'D:\\work\\other-repo',
+                title: 'other-repo',
+                sessionIds: [],
+                createdAt: '2026-11-20T00:00:00Z',
+                updatedAt: '2026-11-20T00:00:00Z',
+              },
+            ],
+            archivedSessionIds: [],
+            pinnedSessionIds: [],
+          }) as never,
+          subscribe: () => () => {},
+        },
+        create: createWs,
+        rename: renameWs,
+      },
+      uiWorkspace: {
+        connectWorkspace,
+        openSession,
+        startSession,
+      },
+      sessions: {
+        retain: () => ({
+          ready: Promise.resolve({ session: { prompt: promptFn } }),
+          release: releaseFn,
+        }),
+      } as never,
+    })
+
+    await launch('请开启随机压力测试')
+
+    expect(createWs).toHaveBeenCalledWith({
+      path: 'C:\\Users\\demo\\.dsh\\plugins\\howtolive\\workspace',
+    })
+    expect(renameWs).toHaveBeenCalledWith('ws-howtolive', '人生补丁')
+    expect(connectWorkspace).toHaveBeenCalledWith('ws-howtolive')
+    expect(openSession).toHaveBeenCalledWith('sess-1')
+    expect(promptFn).toHaveBeenCalledWith([{ type: 'text', text: '请开启随机压力测试' }], 'queue')
+    expect(releaseFn).toHaveBeenCalledTimes(1)
+    expect(startSession).not.toHaveBeenCalled()
+  })
+
+  it('createPromptSessionLauncher 复用已有专属工作区（忽略路径分隔符与大小写）且不重复重命名', async () => {
+    const promptFn = vi.fn(async () => ({ ok: true }))
+    const createWs = vi.fn()
+    const renameWs = vi.fn()
+    const connectWorkspace = vi.fn(async () => 'sess-2' as never)
+
+    const launch = createPromptSessionLauncher({
+      ensureWorkspaceDir: async () => ({
+        path: 'C:\\Users\\Demo\\.dsh\\plugins\\howtolive\\workspace\\',
+        defaultTitle: '人生补丁',
+      }),
+      workspaces: {
+        list: {
+          getSnapshot: () => ({
+            items: [
+              {
+                workspaceId: 'ws-code' as never,
+                path: 'D:\\repo',
+                title: 'repo',
+                sessionIds: [],
+                createdAt: '2026-11-20T00:00:00Z',
+                updatedAt: '2026-11-20T00:00:00Z',
+              },
+              {
+                workspaceId: 'ws-existing-htl' as never,
+                path: 'c:/users/demo/.dsh/plugins/howtolive/workspace',
+                title: '我的自定义名称',
+                sessionIds: [],
+                createdAt: '2026-11-20T00:00:00Z',
+                updatedAt: '2026-11-20T00:00:00Z',
+              },
+            ],
+            archivedSessionIds: [],
+            pinnedSessionIds: [],
+          }) as never,
+          subscribe: () => () => {},
+        },
+        create: createWs,
+        rename: renameWs,
+      },
+      uiWorkspace: {
+        connectWorkspace,
+        openSession: vi.fn(),
+        startSession: vi.fn(),
+      },
+      sessions: {
+        retain: () => ({
+          ready: Promise.resolve({ session: { prompt: promptFn } }),
+          release: vi.fn(),
+        }),
+      } as never,
+    })
+
+    await launch('情景急救')
+
+    expect(createWs).not.toHaveBeenCalled()
+    expect(renameWs).not.toHaveBeenCalled()
+    expect(connectWorkspace).toHaveBeenCalledWith('ws-existing-htl')
+    expect(promptFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('createPromptSessionLauncher 重命名冲突不阻断会话，发送失败时回退到专属工作区草稿', async () => {
+    const renameWs = vi.fn(async () => {
+      throw new Error('workspace/name-conflict')
+    })
+    const startSession = vi.fn()
+
+    const launch = createPromptSessionLauncher({
+      ensureWorkspaceDir: async () => ({
+        path: '/home/user/.dsh/plugins/howtolive/workspace',
+        defaultTitle: '人生补丁',
+      }),
+      workspaces: {
+        list: {
+          getSnapshot: () => ({
+            items: [],
+            archivedSessionIds: [],
+            pinnedSessionIds: [],
+          }) as never,
+          subscribe: () => () => {},
+        },
+        create: async ({ path: wsPath }) => ({
+          workspaceId: 'ws-new' as never,
+          path: wsPath,
+          title: 'workspace',
+          sessionIds: [],
+          createdAt: '2026-11-21T00:00:00Z',
+          updatedAt: '2026-11-21T00:00:00Z',
+        }),
+        rename: renameWs,
+      },
+      uiWorkspace: {
+        connectWorkspace: async () => {
+          throw new Error('connect failed')
+        },
+        openSession: vi.fn(),
+        startSession,
+      },
+      sessions: {} as never,
+    })
+
+    await launch('回退草稿测试')
+
+    expect(renameWs).toHaveBeenCalledWith('ws-new', '人生补丁')
+    expect(startSession).toHaveBeenCalledWith('ws-new', {
+      prompt: '回退草稿测试',
+      whenDraftExists: 'replace',
+    })
   })
 })

@@ -130,3 +130,8 @@ export function fetchExportMarkdown(): Promise<{ filename: string; markdown: str
 export function postSyncKnowledge(): Promise<{ ok: boolean; itemCount?: number; message?: string }> {
   return requestJson(`${API_BASE}/sync`, { method: 'POST', body: '{}' })
 }
+
+/** 确保人生补丁专属工作区目录存在并返回规范路径 */
+export function ensureHowToLiveWorkspaceDir(): Promise<{ path: string; defaultTitle: string }> {
+  return requestJson(`${API_BASE}/workspace`, { method: 'POST', body: '{}' })
+}

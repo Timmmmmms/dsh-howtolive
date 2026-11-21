@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { mkdir, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { ConnectionFetchRoute } from '@deepseek-ai/dsh-client-connection'
@@ -13,7 +14,7 @@ import type {
 } from '../shared/types.ts'
 import { buildPatchReportMarkdown } from './export.ts'
 import { resolvePackageRoot, toItemSummary, type KnowledgeStore } from './knowledge-store.ts'
-import type { StateStore } from './state-store.ts'
+import { resolveWorkspaceDirPath, type StateStore } from './state-store.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -391,6 +392,30 @@ export function createHowToLiveRoutes(
         const markdown = buildPatchReportMarkdown(knowledge, state)
         const filename = `life-patch-report-${todayDateString()}.md`
         return jsonResponse({ filename, markdown })
+      },
+    },
+    {
+      path: `${API_PREFIX}/workspace`,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      async fetch() {
+        try {
+          const workspaceDir = resolveWorkspaceDirPath(stateStore.filePath)
+          await mkdir(workspaceDir, { recursive: true })
+          let canonicalPath = workspaceDir
+          try {
+            canonicalPath = await realpath(workspaceDir)
+          } catch {
+            // realpath 不可用时保留规范解析路径
+          }
+          return jsonResponse({
+            path: canonicalPath,
+            defaultTitle: '人生补丁',
+          })
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err)
+          return jsonResponse({ error: `创建专属工作区目录失败：${message}` }, 500)
+        }
       },
     },
     {
