@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ItemStatus, KnowledgeItemSummary } from '../../shared/types.ts'
-import { IconCheck, IconChevronRight, IconRefresh, IconSparkles } from './Icons.tsx'
+import { IconCheck, IconChevronRight, IconRefresh, IconSparkles, IconZap } from './Icons.tsx'
 import css from './DailyPickCard.module.css'
 
 export interface DailyPickCardProps {
@@ -12,6 +12,8 @@ export interface DailyPickCardProps {
   readonly onMarkStatus: (id: string, status: ItemStatus) => Promise<void>
   readonly onReroll: () => Promise<void>
   readonly onOpenDetail: (id: string) => void
+  /** 打开「摸鱼 3 分钟速刷盲盒」弹窗 */
+  readonly onOpenSprint?: () => void
   readonly t: TranslateNS<'howtolive'>
 }
 
@@ -27,6 +29,7 @@ export function DailyPickCard({
   onMarkStatus,
   onReroll,
   onOpenDetail,
+  onOpenSprint,
   t,
 }: DailyPickCardProps) {
   const [busy, setBusy] = useState(false)
@@ -62,15 +65,28 @@ export function DailyPickCard({
             </span>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<IconRefresh size={14} className={rerolling ? css.spin : undefined} />}
-          disabled={busy}
-          onClick={() => void handleAction(onReroll, true)}
-        >
-          {t('daily.reroll')}
-        </Button>
+        <div className={css.headerActions}>
+          {onOpenSprint && (
+            <Button
+              variant="outline"
+              size="sm"
+              icon={<IconZap size={13} />}
+              disabled={busy}
+              onClick={onOpenSprint}
+            >
+              {t('daily.sprint')}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<IconRefresh size={14} className={rerolling ? css.spin : undefined} />}
+            disabled={busy}
+            onClick={() => void handleAction(onReroll, true)}
+          >
+            {t('daily.reroll')}
+          </Button>
+        </div>
       </div>
 
       {item === null ? (

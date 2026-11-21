@@ -2,9 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { IconSearchOutlineRegular, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ChapterInfo, DimensionId, DimensionMeta, ItemStatus, RoiTier, SortMode } from '../../shared/types.ts'
+import type {
+  ChapterInfo,
+  DimensionId,
+  DimensionMeta,
+  ItemStatus,
+  RoiTier,
+  SortMode,
+  ViewMode,
+} from '../../shared/types.ts'
 import type { HowToLiveLocaleKey } from '../locales.ts'
-import { IconSliders, IconX } from './Icons.tsx'
+import { IconLayoutGrid, IconScanRadar, IconSliders, IconX } from './Icons.tsx'
 import css from './FilterBar.module.css'
 
 export interface FilterState {
@@ -41,6 +49,11 @@ export interface FilterBarProps {
   readonly skippedCount: number
   /** 是否启用 `/` 快捷键聚焦搜索框（弹窗打开时可禁用） */
   readonly shortcutEnabled?: boolean
+  /** 当前主视图模式（cards / cve），传入 onViewModeChange 时在筛选栏右侧展示视图切换 Tab */
+  readonly viewMode?: ViewMode
+  readonly onViewModeChange?: (mode: ViewMode) => void
+  /** 漏洞扫描未修复高危数角标 */
+  readonly cveCriticalCount?: number
   readonly onChange: (next: FilterState) => void
   readonly t: TranslateNS<'howtolive'>
 }
@@ -75,6 +88,9 @@ export function FilterBar({
   totalCount,
   skippedCount,
   shortcutEnabled = true,
+  viewMode = 'cards',
+  onViewModeChange,
+  cveCriticalCount = 0,
   onChange,
   t,
 }: FilterBarProps) {
@@ -128,31 +144,61 @@ export function FilterBar({
 
   return (
     <div className={css.wrap}>
-      {/* 六维横向导航条 */}
-      <nav className={css.dimTabs} aria-label={t('filter.allDimensions')}>
-        <button
-          type="button"
-          className={clsx(css.dimTab, filters.dimension === 'all' && css.dimTabActive)}
-          aria-pressed={filters.dimension === 'all'}
-          onClick={() => onChange({ ...filters, dimension: 'all', chapterNumber: 'all' })}
-        >
-          {t('filter.allDimensions')}
-        </button>
-        {dimensions.map((dim) => {
-          const active = filters.dimension === dim.id
-          return (
+      {/* 顶行：六维横向导航条 + 右侧主视图切换 Tab */}
+      <div className={css.topBar}>
+        <nav className={css.dimTabs} aria-label={t('filter.allDimensions')}>
+          <button
+            type="button"
+            className={clsx(css.dimTab, filters.dimension === 'all' && css.dimTabActive)}
+            aria-pressed={filters.dimension === 'all'}
+            onClick={() => onChange({ ...filters, dimension: 'all', chapterNumber: 'all' })}
+          >
+            {t('filter.allDimensions')}
+          </button>
+          {dimensions.map((dim) => {
+            const active = filters.dimension === dim.id
+            return (
+              <button
+                key={dim.id}
+                type="button"
+                className={clsx(css.dimTab, active && css.dimTabActive)}
+                aria-pressed={active}
+                onClick={() => onChange({ ...filters, dimension: active ? 'all' : dim.id, chapterNumber: 'all' })}
+              >
+                {dim.name}
+              </button>
+            )
+          })}
+        </nav>
+
+        {onViewModeChange && (
+          <div className={css.viewSwitch} role="tablist" aria-label={t('view.switcherLabel')}>
             <button
-              key={dim.id}
               type="button"
-              className={clsx(css.dimTab, active && css.dimTabActive)}
-              aria-pressed={active}
-              onClick={() => onChange({ ...filters, dimension: active ? 'all' : dim.id, chapterNumber: 'all' })}
+              role="tab"
+              aria-selected={viewMode === 'cards'}
+              className={clsx(css.viewTab, viewMode === 'cards' && css.viewTabActive)}
+              onClick={() => onViewModeChange('cards')}
             >
-              {dim.name}
+              <IconLayoutGrid size={13} />
+              <span>{t('view.cards')}</span>
             </button>
-          )
-        })}
-      </nav>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'cve'}
+              className={clsx(css.viewTab, viewMode === 'cve' && css.viewTabActive)}
+              onClick={() => onViewModeChange('cve')}
+            >
+              <IconScanRadar size={13} />
+              <span>{t('view.cve')}</span>
+              {cveCriticalCount > 0 && (
+                <span className={css.cveBadge}>{cveCriticalCount}</span>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* 搜索 + 状态分段 + 排序 + 高级筛选开关 */}
       <div className={css.toolRow}>
@@ -181,32 +227,36 @@ export function FilterBar({
           )}
         </div>
 
-        <div className={css.segmented} role="group" aria-label={t('filter.status.all')}>
-          {STATUS_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              className={clsx(css.segBtn, filters.status === opt.value && css.segBtnActive)}
-              aria-pressed={filters.status === opt.value}
-              onClick={() => onChange({ ...filters, status: opt.value })}
-            >
-              {t(opt.labelKey)}
-            </button>
-          ))}
-        </div>
+        {viewMode === 'cards' && (
+          <>
+            <div className={css.segmented} role="group" aria-label={t('filter.status.all')}>
+              {STATUS_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={clsx(css.segBtn, filters.status === opt.value && css.segBtnActive)}
+                  aria-pressed={filters.status === opt.value}
+                  onClick={() => onChange({ ...filters, status: opt.value })}
+                >
+                  {t(opt.labelKey)}
+                </button>
+              ))}
+            </div>
 
-        <select
-          className={css.sortSelect}
-          aria-label={t('filter.sortLabel')}
-          value={filters.sort}
-          onChange={(e) => onChange({ ...filters, sort: e.target.value as SortMode })}
-        >
-          {SORT_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {t(opt.labelKey)}
-            </option>
-          ))}
-        </select>
+            <select
+              className={css.sortSelect}
+              aria-label={t('filter.sortLabel')}
+              value={filters.sort}
+              onChange={(e) => onChange({ ...filters, sort: e.target.value as SortMode })}
+            >
+              {SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {t(opt.labelKey)}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
 
         <button
           type="button"

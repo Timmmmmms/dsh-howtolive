@@ -3,11 +3,13 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import { SCENARIOS } from '../../shared/scenarios.ts'
 import type { ScenarioPreset } from '../../shared/types.ts'
 import type { HowToLiveLocaleKey } from '../locales.ts'
-import { IconArrowUpRight, ScenarioIcon } from './Icons.tsx'
+import { IconArrowUpRight, IconFlame, ScenarioIcon } from './Icons.tsx'
 import css from './ScenarioBar.module.css'
 
 export interface ScenarioBarProps {
   readonly onSelectScenario: (scenario: ScenarioPreset) => void
+  /** 启动「人生混沌工程 · 防坑演练场」AI 文字 RPG 压力测试 */
+  readonly onStartChaosDrill?: () => void
   readonly t: TranslateNS<'howtolive'>
 }
 
@@ -37,12 +39,26 @@ const TONE_CLASS: Record<string, string | undefined> = {
  * - 采用统一线性 SVG 图标 + 低饱和语义色微光容器，彻底告别粗糙 emoji
  * - 点击一键创建并发送循证急救会话
  */
-export function ScenarioBar({ onSelectScenario, t }: ScenarioBarProps) {
+export function ScenarioBar({ onSelectScenario, onStartChaosDrill, t }: ScenarioBarProps) {
   return (
     <section className={css.wrap} aria-label={t('scenario.heading')}>
       <div className={css.header}>
-        <h2 className={css.title}>{t('scenario.heading')}</h2>
-        <span className={css.subheading}>{t('scenario.subheading')}</span>
+        <div className={css.headerMeta}>
+          <h2 className={css.title}>{t('scenario.heading')}</h2>
+          <span className={css.subheading}>{t('scenario.subheading')}</span>
+        </div>
+        {onStartChaosDrill && (
+          <button
+            type="button"
+            className={css.drillBtn}
+            title={t('scenario.chaosDrillHint')}
+            onClick={onStartChaosDrill}
+          >
+            <IconFlame size={14} />
+            <span>{t('scenario.chaosDrill')}</span>
+            <IconArrowUpRight size={13} className={css.drillArrow} />
+          </button>
+        )}
       </div>
 
       <div className={css.grid}>

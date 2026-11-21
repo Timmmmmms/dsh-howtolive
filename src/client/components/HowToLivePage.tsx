@@ -3,7 +3,14 @@ import clsx from 'clsx'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import { buildCheckupPrompt, buildItemActionPrompt, buildScenarioPrompt } from '../../shared/scenarios.ts'
+import { scanLifeVulnerabilities } from '../../shared/cve.ts'
+import {
+  buildChaosDrillPrompt,
+  buildCheckupPrompt,
+  buildItemActionPrompt,
+  buildScenarioPrompt,
+  selectChaosDrillCandidates,
+} from '../../shared/scenarios.ts'
 import type {
   ItemProgressPatch,
   ItemStatus,
@@ -13,8 +20,10 @@ import type {
   RoiTier,
   ScenarioPreset,
   UserProfile,
+  ViewMode,
 } from '../../shared/types.ts'
 import type { HowToLiveViewSnapshot } from '../store.ts'
+import { CveScannerView } from './CveScannerView.tsx'
 import { DailyPickCard } from './DailyPickCard.tsx'
 import { DEFAULT_FILTERS, FilterBar, type FilterState } from './FilterBar.tsx'
 import {
@@ -28,6 +37,7 @@ import {
 import { ItemCard } from './ItemCard.tsx'
 import { ItemDetailDrawer } from './ItemDetailDrawer.tsx'
 import { LifeRadarCard } from './LifeRadarCard.tsx'
+import { PatchSprintModal } from './PatchSprintModal.tsx'
 import { ProfileModal } from './ProfileModal.tsx'
 import { ScenarioBar } from './ScenarioBar.tsx'
 import css from './HowToLivePage.module.css'
@@ -91,11 +101,13 @@ export function HowToLivePage(props: HowToLivePageProps) {
 
   const snap = useHowtolive((s) => s)
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
+  const [viewMode, setViewMode] = useState<ViewMode>('cards')
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileGuideForCheckup, setProfileGuideForCheckup] = useState(false)
+  const [sprintOpen, setSprintOpen] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
 
   const pageScrollRef = useRef<HTMLDivElement>(null)
@@ -225,6 +237,29 @@ export function HowToLivePage(props: HowToLivePageProps) {
     [filteredItems, visibleCount],
   )
 
+  // 漏洞扫描按当前维度/章节/关键词/高级筛选范围实时审计（不受 status 筛选影响，以便准确统计加固度）
+  const cveReport = useMemo(() => {
+    const tokens = filters.query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    const scoped = snap.items.filter((item) => {
+      if (filters.dimension !== 'all' && item.dimension !== filters.dimension) return false
+      if (filters.chapterNumber !== 'all' && item.chapterNumber !== filters.chapterNumber) return false
+      if (filters.tier !== 'all' && item.roiTier !== filters.tier) return false
+      if (filters.zeroCostOnly && item.tags?.money !== '0') return false
+      if (filters.gradeAOnly && !item.evidenceGrade.trim().toUpperCase().startsWith('A')) return false
+      if (filters.audience && !(item.tags?.audience ?? []).some((a) => a.includes(filters.audience))) {
+        return false
+      }
+      if (tokens.length > 0) {
+        const hay = `${item.id} ${item.title} ${item.plain} ${item.cost} ${item.chapterTitle} ${item.topic ?? ''} ${(item.tags?.audience ?? []).join(' ')}`.toLowerCase()
+        for (const tok of tokens) {
+          if (!hay.includes(tok)) return false
+        }
+      }
+      return true
+    })
+    return scanLifeVulnerabilities(scoped, snap.state?.progress ?? {}, snap.state?.profile)
+  }, [snap.items, snap.state?.progress, snap.state?.profile, filters])
+
   const handleUpdateProgress = useCallback(
     async (id: string, patch: ItemProgressPatch) => {
       const prevLevel = snap.summary?.level.level ?? 1
@@ -338,6 +373,14 @@ export function HowToLivePage(props: HowToLivePageProps) {
     void launchPromptSession(prompt)
   }
 
+  const handleStartChaosDrill = () => {
+    const profile = snap.state?.profile ?? {}
+    const progress = snap.state?.progress ?? {}
+    const candidates = selectChaosDrillCandidates(snap.items, progress, profile, 4)
+    const prompt = buildChaosDrillPrompt(profile, snap.summary ?? undefined, candidates)
+    void launchPromptSession(prompt)
+  }
+
   const handleAskAiForItem = (item: KnowledgeItem | KnowledgeItemSummary) => {
     const profile = snap.state?.profile ?? {}
     const prompt = buildItemActionPrompt(item, profile)
@@ -443,12 +486,17 @@ export function HowToLivePage(props: HowToLivePageProps) {
                     }}
                     onReroll={rerollDaily}
                     onOpenDetail={(id) => void openItemDetail(id)}
+                    onOpenSprint={() => setSprintOpen(true)}
                     t={t}
                   />
                 </div>
               )}
 
-              <ScenarioBar onSelectScenario={handleScenario} t={t} />
+              <ScenarioBar
+                onSelectScenario={handleScenario}
+                onStartChaosDrill={handleStartChaosDrill}
+                t={t}
+              />
 
               {snap.meta && (
                 <div ref={filterSectionRef}>
@@ -457,49 +505,64 @@ export function HowToLivePage(props: HowToLivePageProps) {
                     dimensions={snap.meta.dimensions}
                     chapters={snap.chapters}
                     audiences={snap.meta.stats.topAudiences}
-                    shownCount={filteredItems.length}
+                    shownCount={viewMode === 'cve' ? cveReport.vulnerabilities.length : filteredItems.length}
                     totalCount={snap.items.length}
                     skippedCount={snap.summary?.skippedCount ?? 0}
-                    shortcutEnabled={!profileOpen && snap.selectedItemId === null}
+                    shortcutEnabled={!profileOpen && !sprintOpen && snap.selectedItemId === null}
+                    viewMode={viewMode}
+                    onViewModeChange={setViewMode}
+                    cveCriticalCount={cveReport.criticalCount}
                     onChange={setFilters}
                     t={t}
                   />
                 </div>
               )}
 
-              <section className={css.listSection} aria-label={t('page.title')}>
-                {visibleItems.length === 0 ? (
-                  <div className={css.stateCard}>{t('item.listEmpty')}</div>
-                ) : (
-                  <div className={css.listGrid}>
-                    {visibleItems.map((item) => (
-                      <ItemCard
-                        key={item.id}
-                        item={item}
-                        progress={snap.state?.progress[item.id]}
-                        busy={busyId === item.id}
-                        onSetStatus={(id, status) => {
-                          void handleUpdateProgress(id, { status }).catch(() => undefined)
-                        }}
-                        onOpenDetail={(id) => void openItemDetail(id)}
-                        t={t}
-                      />
-                    ))}
-                  </div>
-                )}
+              {viewMode === 'cve' ? (
+                <CveScannerView
+                  report={cveReport}
+                  busyId={busyId}
+                  onSetStatus={(id, status) => {
+                    void handleUpdateProgress(id, { status }).catch(() => undefined)
+                  }}
+                  onOpenDetail={(id) => void openItemDetail(id)}
+                  t={t}
+                />
+              ) : (
+                <section className={css.listSection} aria-label={t('page.title')}>
+                  {visibleItems.length === 0 ? (
+                    <div className={css.stateCard}>{t('item.listEmpty')}</div>
+                  ) : (
+                    <div className={css.listGrid}>
+                      {visibleItems.map((item) => (
+                        <ItemCard
+                          key={item.id}
+                          item={item}
+                          progress={snap.state?.progress[item.id]}
+                          busy={busyId === item.id}
+                          onSetStatus={(id, status) => {
+                            void handleUpdateProgress(id, { status }).catch(() => undefined)
+                          }}
+                          onOpenDetail={(id) => void openItemDetail(id)}
+                          t={t}
+                        />
+                      ))}
+                    </div>
+                  )}
 
-                {visibleCount < filteredItems.length && (
-                  <div className={css.loadMoreWrap}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                    >
-                      {t('item.loadMore', { remaining: filteredItems.length - visibleCount })}
-                    </Button>
-                  </div>
-                )}
-              </section>
+                  {visibleCount < filteredItems.length && (
+                    <div className={css.loadMoreWrap}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                      >
+                        {t('item.loadMore', { remaining: filteredItems.length - visibleCount })}
+                      </Button>
+                    </div>
+                  )}
+                </section>
+              )}
 
               <footer className={css.footer}>
                 <div className={css.footerLinks}>
@@ -594,6 +657,21 @@ export function HowToLivePage(props: HowToLivePageProps) {
               },
             }
           : {})}
+        t={t}
+      />
+
+      <PatchSprintModal
+        open={sprintOpen}
+        items={snap.items}
+        progress={snap.state?.progress ?? {}}
+        summary={snap.summary}
+        profile={snap.state?.profile ?? {}}
+        detailOpen={snap.selectedItemId !== null}
+        onClose={() => setSprintOpen(false)}
+        onMarkStatus={async (id, status) => {
+          await handleUpdateProgress(id, { status })
+        }}
+        onOpenDetail={(id) => void openItemDetail(id)}
         t={t}
       />
 

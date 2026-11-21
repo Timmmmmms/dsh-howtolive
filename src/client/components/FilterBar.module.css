@@ -4,14 +4,86 @@
   gap: 12px;
 }
 
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+  flex-wrap: wrap;
+}
+
 .dimTabs {
   display: flex;
   align-items: center;
   gap: 4px;
   overflow-x: auto;
   padding-bottom: 2px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l1);
   scrollbar-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.viewSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 6px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  flex-shrink: 0;
+}
+
+.viewTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: calc(var(--dsw-radius-md) - 2px);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+  font-family: var(--dsw-font-family);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 160ms var(--ds-ease-in-out), color 160ms var(--ds-ease-in-out);
+}
+
+.viewTabActive {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.viewTab:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+.cveBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 16%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (hover: hover) {
+  .viewTab:hover:not(.viewTabActive) {
+    color: var(--dsw-alias-label-secondary);
+  }
 }
 
 .dimTabs::-webkit-scrollbar {
@@ -322,6 +394,7 @@
   }
   .dimTab,
   .dimTab::after,
+  .viewTab,
   .segBtn,
   .advToggle {
     transition: none;

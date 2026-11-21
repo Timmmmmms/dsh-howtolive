@@ -1,4 +1,14 @@
-import type { KnowledgeItem, KnowledgeItemSummary, ScenarioPreset, ScoreSummary, UserProfile } from './types.ts'
+import { computeProfileMatchScore } from './cve.ts'
+import type {
+  ItemProgress,
+  ItemStatus,
+  KnowledgeItem,
+  KnowledgeItemSummary,
+  RoiTier,
+  ScenarioPreset,
+  ScoreSummary,
+  UserProfile,
+} from './types.ts'
 
 /**
  * 6 大「遇事不慌」情景急救箱预设，严格对应 DESIGN_AND_PLAN.md 章节映射。
@@ -191,5 +201,128 @@ export function buildItemActionPrompt(
     '1. 结合我的个人画像，拆解成 3~5 个清晰、低阻力、本周即可完成的具体行动步骤。',
     '2. 标出常见踩坑点、需要提前准备的材料/工具，以及如何低成本验证是否落实到位。',
     '3. 若涉及医疗、法律或财务决策，请忠实引用原书 `evidenceGrade` 与 `sources`，不编造数据或法条。',
+  ].filter(Boolean).join('\n')
+}
+
+const DRILL_TIER_RANK: Record<RoiTier, number> = { S: 0, A: 1, B: 2, C: 3 }
+
+/**
+ * 从未完成的 S/A 级高匹配条目中挑选 3~5 条作为「防坑演练场」的暗雷候选。
+ * 优先覆盖不同人生维度，确保每场压力测试场景丰富且切合本地画像。
+ */
+export function selectChaosDrillCandidates(
+  items: readonly KnowledgeItemSummary[],
+  progress: Readonly<Record<string, ItemProgress | undefined>>,
+  profile: UserProfile,
+  count = 4,
+): KnowledgeItemSummary[] {
+  const targetCount = Math.max(3, Math.min(5, count))
+
+  const isUnfinished = (item: KnowledgeItemSummary): boolean => {
+    const st: ItemStatus = progress[item.id]?.status ?? 'todo'
+    return st === 'todo' || st === 'planned'
+  }
+
+  const rank = (a: KnowledgeItemSummary, b: KnowledgeItemSummary): number => {
+    const scoreA = a.roiScore + computeProfileMatchScore(a, profile) + (a.tags?.money === '0' ? 10 : 0)
+    const scoreB = b.roiScore + computeProfileMatchScore(b, profile) + (b.tags?.money === '0' ? 10 : 0)
+    return (
+      DRILL_TIER_RANK[a.roiTier] - DRILL_TIER_RANK[b.roiTier]
+      || scoreB - scoreA
+      || a.chapterNumber - b.chapterNumber
+      || a.number - b.number
+    )
+  }
+
+  const saPool = items
+    .filter((item) => isUnfinished(item) && (item.roiTier === 'S' || item.roiTier === 'A'))
+    .sort(rank)
+
+  const fallbackPool = saPool.length >= targetCount
+    ? saPool
+    : [
+        ...saPool,
+        ...items
+          .filter((item) => isUnfinished(item) && item.roiTier !== 'S' && item.roiTier !== 'A')
+          .sort(rank),
+      ]
+
+  const picked: KnowledgeItemSummary[] = []
+  const usedDims = new Set<string>()
+  const usedIds = new Set<string>()
+
+  // 第一轮：优先每个维度最多挑 1 条，增加突发事件的多样性
+  for (const item of fallbackPool) {
+    if (picked.length >= targetCount) break
+    if (usedDims.has(item.dimension)) continue
+    picked.push(item)
+    usedDims.add(item.dimension)
+    usedIds.add(item.id)
+  }
+
+  // 第二轮：若不足 targetCount，再按排序补足
+  for (const item of fallbackPool) {
+    if (picked.length >= targetCount) break
+    if (usedIds.has(item.id)) continue
+    picked.push(item)
+    usedIds.add(item.id)
+  }
+
+  return picked
+}
+
+/**
+ * 构造「人生混沌工程 · 防坑演练场」AI 文字 RPG 提示词：
+ * - 从用户未完成的 S/A 级高匹配条目中埋入 3~5 条“暗雷”
+ * - 指示 DeepSeek 扮演「墨菲定律考官」发起 3~4 轮沉浸式突发危机演练（每轮严禁剧透答案）
+ * - 演练结束时强制调用 `howtolive_get_item` 核验原书条目，输出生存评分与复盘，自然触发 TurnPatchCard
+ */
+export function buildChaosDrillPrompt(
+  profile: UserProfile,
+  summary: ScoreSummary | undefined,
+  candidateItems: readonly KnowledgeItemSummary[],
+): string {
+  const profileText = formatProfileContext(profile)
+  const hiddenMines = candidateItems.slice(0, 5)
+  const rounds = hiddenMines.length >= 4 ? 4 : 3
+
+  const summaryLines = summary
+    ? [
+        `当前补丁等级：Lv.${summary.level.level} ${summary.level.title}（${summary.totalXp} XP，总体完成率 ${summary.overallRate}%）`,
+        summary.weakestDimension
+          ? `当前最薄弱维度：${summary.weakestDimension.name}（${summary.weakestDimension.completionRate}%）`
+          : '',
+      ].filter(Boolean).join('\n')
+    : ''
+
+  const minesSection = hiddenMines.length > 0
+    ? hiddenMines
+        .map(
+          (item, idx) =>
+            `${idx + 1}. [${item.id}]（${item.roiTier} 级 · ${item.chapterTitle}）${item.title} — ${item.plain}`,
+        )
+        .join('\n')
+    : '（当前未传入预设暗雷，请先调用 `howtolive_search` 检索 `excludeDone: true` 的 S/A 级高性价比条目并暗中挑选 3~4 条作为本场演练暗雷，同样严禁在演练结束前剧透条目编号。）'
+
+  return [
+    `请扮演「墨菲定律考官」，为我开启一场【人生混沌工程 · 防坑演练场】沉浸式文字 RPG 压力测试（共 ${rounds} 轮突发危机）。`,
+    '',
+    '### 我的本地个人画像',
+    profileText,
+    summaryLines ? `\n### 当前六维防御概况\n${summaryLines}` : '',
+    '',
+    '### 本场暗雷池（仅考官可见，演练结束前绝对禁止剧透条目 ID 或原书答案）',
+    minesSection,
+    '',
+    '### 演练规则（必须严格遵守）',
+    `1. **逐轮推进**：一共进行 ${rounds} 轮连续或关联的真实生活突发危机，每轮暗中考验上面暗雷池中的 1 条盲区。`,
+    '2. **严禁剧透与抢答**：每一轮只描述**当下紧迫的真实情境**，给出 **3 个贴近现实的行动选项（A / B / C）并允许我自由作答**，然后立刻停止输出并等待我回复。**绝对不要在同一轮里揭晓正确答案、不要提前展示条目 ID、不要代替我做选择。**',
+    '3. **沉浸感与真实代价**：根据我上一轮的选择，简短给出合乎现实逻辑的“现场后果反馈”，再切入下一轮危机。',
+    '4. **终局复盘与工具核验**：在全部轮次结束后，**必须调用 `howtolive_get_item`** 逐一核验本次演练触发的原书条目原文（以便核对 `evidenceGrade` 与 `sources`，并在对话底部生成可一键加入行动清单的补丁卡片），然后输出：',
+    '   - **生存评分**（0~100 分 + 一句话锐评）',
+    '   - **踩坑复盘**（我在哪几轮躲过了坑、哪几轮中招、现实中会付出什么代价）',
+    '   - **本次暴露的待打补丁清单**（标注条目 ID、性价比等级、证据等级与今天就能做的第一步）',
+    '',
+    '现在请直接进入【第 1 轮】危机现场！',
   ].filter(Boolean).join('\n')
 }

@@ -48,16 +48,19 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   IconSearchOutlineRegular: () => <span aria-hidden="true">🔍</span>,
 }))
 
+import { CveScannerView } from '../src/client/components/CveScannerView.tsx'
 import { LifeRadarCard } from '../src/client/components/LifeRadarCard.tsx'
 import { DailyPickCard } from '../src/client/components/DailyPickCard.tsx'
 import { DEFAULT_FILTERS, FilterBar } from '../src/client/components/FilterBar.tsx'
 import { ItemDetailDrawer } from '../src/client/components/ItemDetailDrawer.tsx'
+import { PatchSprintModal } from '../src/client/components/PatchSprintModal.tsx'
 import { ScenarioBar } from '../src/client/components/ScenarioBar.tsx'
 import { ProfileModal } from '../src/client/components/ProfileModal.tsx'
 import { TurnPatchCard } from '../src/client/components/TurnPatchCard.tsx'
 import { howtoliveTurnDefinition, selectHowToLivePatches } from '../src/client/howtolive-turn.ts'
 import { en, zh, type HowToLiveLocaleKey } from '../src/client/locales.ts'
 import { createHowToLiveController } from '../src/client/store.ts'
+import { scanLifeVulnerabilities } from '../src/shared/cve.ts'
 import { computeScoreSummary, DEFAULT_DIMENSIONS } from '../src/shared/scoring.ts'
 import type { KnowledgeItem, KnowledgeItemSummary } from '../src/shared/types.ts'
 
@@ -488,5 +491,162 @@ describe('Client components & Turn projection', () => {
     } finally {
       fetchSpy.mockRestore()
     }
+  })
+
+  it('Task 1A：ScenarioBar 支持展示「随机压力测试（AI 演练）」入口并触发回调', () => {
+    const onSelectScenario = vi.fn()
+    const onStartChaosDrill = vi.fn()
+    render(
+      <ScenarioBar
+        onSelectScenario={onSelectScenario}
+        onStartChaosDrill={onStartChaosDrill}
+        t={t}
+      />,
+    )
+
+    const drillBtn = screen.getByRole('button', { name: '随机压力测试（AI 演练）' })
+    fireEvent.click(drillBtn)
+    expect(onStartChaosDrill).toHaveBeenCalledTimes(1)
+  })
+
+  it('Task 1B：FilterBar 视图切换 Tab 与 CveScannerView 漏洞修复交互', () => {
+    const onViewModeChange = vi.fn()
+    render(
+      <FilterBar
+        filters={DEFAULT_FILTERS}
+        dimensions={DEFAULT_DIMENSIONS}
+        chapters={[]}
+        audiences={[]}
+        shownCount={2}
+        totalCount={10}
+        skippedCount={0}
+        viewMode="cards"
+        onViewModeChange={onViewModeChange}
+        cveCriticalCount={3}
+        onChange={() => {}}
+        t={t}
+      />,
+    )
+
+    const cveTab = screen.getByRole('tab', { name: /漏洞扫描/ })
+    fireEvent.click(cveTab)
+    expect(onViewModeChange).toHaveBeenCalledWith('cve')
+
+    cleanup()
+
+    const report = scanLifeVulnerabilities([SAMPLE_ITEM], {}, {})
+    const onSetStatus = vi.fn()
+    const onOpenDetail = vi.fn()
+
+    render(
+      <CveScannerView
+        report={report}
+        busyId={null}
+        onSetStatus={onSetStatus}
+        onOpenDetail={onOpenDetail}
+        t={t}
+      />,
+    )
+
+    expect(screen.getByText('LIFE-CVE-01-01')).toBeTruthy()
+    expect(screen.getByText('暴露中 (Exposed)')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '一键修复' }))
+    expect(onSetStatus).toHaveBeenCalledWith('01-01', 'done')
+
+    fireEvent.click(screen.getByRole('button', { name: '排期修复' }))
+    expect(onSetStatus).toHaveBeenCalledWith('01-01', 'planned')
+
+    fireEvent.click(screen.getByRole('button', { name: '误报/不适用' }))
+    expect(onSetStatus).toHaveBeenCalledWith('01-01', 'skipped')
+
+    fireEvent.click(screen.getByRole('button', { name: '查看修复指南' }))
+    expect(onOpenDetail).toHaveBeenCalledWith('01-01')
+  })
+
+  it('Task 1C：PatchSprintModal 支持键盘速刷、Combo 连击、结算卡与空池兜底', async () => {
+    const item2: KnowledgeItemSummary = {
+      ...SAMPLE_ITEM,
+      id: '01-02',
+      number: 2,
+      title: '家中备好独立烟雾报警器',
+      xp: 25,
+    }
+    const onMarkStatus = vi.fn(async () => {})
+    const onOpenDetail = vi.fn()
+    const onClose = vi.fn()
+
+    render(
+      <PatchSprintModal
+        open={true}
+        items={[SAMPLE_ITEM, item2]}
+        progress={{}}
+        summary={computeScoreSummary([SAMPLE_ITEM, item2], {}, DEFAULT_DIMENSIONS)}
+        profile={{}}
+        onClose={onClose}
+        onMarkStatus={onMarkStatus}
+        onOpenDetail={onOpenDetail}
+        t={t}
+      />,
+    )
+
+    expect(screen.getByText('上车无论前后排都系安全带')).toBeTruthy()
+
+    // Space 打开详情
+    fireEvent.keyDown(window, { key: ' ' })
+    expect(onOpenDetail).toHaveBeenCalledWith('01-01')
+
+    // → 标记已做到，触发 1 连击并切到第 2 张
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    await waitFor(() => expect(onMarkStatus).toHaveBeenCalledWith('01-01', 'done'))
+    await waitFor(() => expect(screen.getByText('家中备好独立烟雾报警器')).toBeTruthy())
+    expect(screen.getByText('1 连击')).toBeTruthy()
+
+    // ↑ 加入行动清单，进入结算卡并记录最高 2x 连击
+    fireEvent.keyDown(window, { key: 'ArrowUp' })
+    await waitFor(() => expect(onMarkStatus).toHaveBeenCalledWith('01-02', 'planned'))
+    await waitFor(() => expect(screen.getByText('本轮速刷完成！')).toBeTruthy())
+    expect(screen.getByText('+40')).toBeTruthy()
+    expect(screen.getByText('2x')).toBeTruthy()
+
+    // Esc 退出
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+
+    // 空池兜底展示
+    cleanup()
+    render(
+      <PatchSprintModal
+        open={true}
+        items={[SAMPLE_ITEM]}
+        progress={{ '01-01': { status: 'done', updatedAt: '2026-11-21T00:00:00Z' } }}
+        summary={computeScoreSummary([SAMPLE_ITEM], { '01-01': { status: 'done', updatedAt: '2026-11-21T00:00:00Z' } }, DEFAULT_DIMENSIONS)}
+        profile={{}}
+        onClose={() => {}}
+        onMarkStatus={async () => {}}
+        onOpenDetail={() => {}}
+        t={t}
+      />,
+    )
+    expect(screen.getByText('当前模式已全部刷完')).toBeTruthy()
+  })
+
+  it('Task 1C：DailyPickCard 支持展示「3 分钟速刷」入口按钮', () => {
+    const onOpenSprint = vi.fn()
+    render(
+      <DailyPickCard
+        item={SAMPLE_ITEM}
+        itemStatus="todo"
+        xpFeedback={null}
+        onMarkStatus={async () => {}}
+        onReroll={async () => {}}
+        onOpenDetail={() => {}}
+        onOpenSprint={onOpenSprint}
+        t={t}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '3 分钟速刷' }))
+    expect(onOpenSprint).toHaveBeenCalledTimes(1)
   })
 })
