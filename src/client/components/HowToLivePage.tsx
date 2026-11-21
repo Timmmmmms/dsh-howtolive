@@ -5,12 +5,14 @@ import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@dee
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import { computeBadges } from '../../shared/badges.ts'
 import { scanLifeVulnerabilities } from '../../shared/cve.ts'
+import { findProfileSkipCandidates } from '../../shared/profile-filter.ts'
 import { countDueReviewItems, isItemDueForReview } from '../../shared/scoring.ts'
 import {
   buildChaosDrillPrompt,
   buildCheckupPrompt,
   buildItemActionPrompt,
   buildScenarioPrompt,
+  buildWeekendPlanPrompt,
   selectChaosDrillCandidates,
 } from '../../shared/scenarios.ts'
 import type {
@@ -41,8 +43,10 @@ import {
 import { ItemCard } from './ItemCard.tsx'
 import { ItemDetailDrawer } from './ItemDetailDrawer.tsx'
 import { LifeRadarCard } from './LifeRadarCard.tsx'
+import { PatchGraphView } from './PatchGraphView.tsx'
 import { PatchSprintModal } from './PatchSprintModal.tsx'
 import { ProfileModal } from './ProfileModal.tsx'
+import { ProfileSkipWizardModal } from './ProfileSkipWizardModal.tsx'
 import { ScenarioBar } from './ScenarioBar.tsx'
 import { ShareCardModal } from './ShareCardModal.tsx'
 import css from './HowToLivePage.module.css'
@@ -72,6 +76,9 @@ export interface HowToLivePageInjected {
   readonly goBackItemDetail?: () => Promise<void>
   readonly closeItemDetail: () => void
   readonly setItemProgress: (id: string, patch: ItemProgressPatch) => Promise<ProgressUpdateResult | unknown>
+  readonly setItemsProgressBatch?: (
+    updates: ReadonlyArray<{ id: string } & ItemProgressPatch>,
+  ) => Promise<{ updatedCount: number } | unknown>
   readonly saveProfile: (profile: UserProfile) => Promise<void>
   readonly rerollDaily: () => Promise<void>
   readonly exportMarkdown: () => Promise<{ filename: string; markdown: string }>
@@ -96,6 +103,7 @@ export function HowToLivePage(props: HowToLivePageProps) {
     goBackItemDetail,
     closeItemDetail,
     setItemProgress,
+    setItemsProgressBatch,
     saveProfile,
     rerollDaily,
     exportMarkdown,
@@ -115,6 +123,7 @@ export function HowToLivePage(props: HowToLivePageProps) {
   const [sprintOpen, setSprintOpen] = useState(false)
   const [badgesOpen, setBadgesOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [skipWizardOpen, setSkipWizardOpen] = useState(false)
   const [showBackToTop, setShowBackToTop] = useState(false)
 
   const pageScrollRef = useRef<HTMLDivElement>(null)
@@ -245,10 +254,10 @@ export function HowToLivePage(props: HowToLivePageProps) {
     [filteredItems, visibleCount],
   )
 
-  // 漏洞扫描按当前维度/章节/关键词/高级筛选范围实时审计（不受 status 筛选影响，以便准确统计加固度）
-  const cveReport = useMemo(() => {
+  // 按当前维度/章节/关键词/高级筛选范围过滤（不受 status 限制），供漏洞扫描与关系星图共用
+  const scopedItems = useMemo(() => {
     const tokens = filters.query.trim().toLowerCase().split(/\s+/).filter(Boolean)
-    const scoped = snap.items.filter((item) => {
+    return snap.items.filter((item) => {
       if (filters.dimension !== 'all' && item.dimension !== filters.dimension) return false
       if (filters.chapterNumber !== 'all' && item.chapterNumber !== filters.chapterNumber) return false
       if (filters.tier !== 'all' && item.roiTier !== filters.tier) return false
@@ -265,8 +274,17 @@ export function HowToLivePage(props: HowToLivePageProps) {
       }
       return true
     })
-    return scanLifeVulnerabilities(scoped, snap.state?.progress ?? {}, snap.state?.profile)
-  }, [snap.items, snap.state?.progress, snap.state?.profile, filters])
+  }, [snap.items, filters])
+
+  const cveReport = useMemo(
+    () => scanLifeVulnerabilities(scopedItems, snap.state?.progress ?? {}, snap.state?.profile),
+    [scopedItems, snap.state?.progress, snap.state?.profile],
+  )
+
+  const skipAnalysis = useMemo(
+    () => findProfileSkipCandidates(snap.items, snap.state?.progress ?? {}, snap.state?.profile),
+    [snap.items, snap.state?.progress, snap.state?.profile],
+  )
 
   const badges = useMemo(
     () => computeBadges(snap.items, snap.state?.progress ?? {}, snap.summary ?? undefined),
@@ -411,6 +429,39 @@ export function HowToLivePage(props: HowToLivePageProps) {
     void launchPromptSession(prompt)
   }
 
+  const handlePlanWeekend = () => {
+    const profile = snap.state?.profile ?? {}
+    const progress = snap.state?.progress ?? {}
+    const plannedPool = filters.status === 'planned' && filteredItems.length > 0
+      ? filteredItems
+      : snap.items.filter((item) => (progress[item.id]?.status ?? 'todo') === 'planned')
+    if (plannedPool.length === 0) return
+    const prompt = buildWeekendPlanPrompt(plannedPool, profile, snap.summary ?? undefined)
+    void launchPromptSession(prompt)
+  }
+
+  const handleBatchSkip = async (itemIds: string[]) => {
+    if (itemIds.length === 0) return
+    const updates = itemIds.map((id) => ({ id, status: 'skipped' as const }))
+    try {
+      if (setItemsProgressBatch) {
+        await setItemsProgressBatch(updates)
+      } else {
+        for (const entry of updates) {
+          await setItemProgress(entry.id, { status: entry.status })
+        }
+      }
+      showToast(t('skipWizard.doneToast', { count: itemIds.length }), {
+        tone: 'info',
+        durationMs: 3600,
+      })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      showToast(t('toast.updateError', { message }), { tone: 'error', durationMs: 4000 })
+      throw err
+    }
+  }
+
   const handleSelectRadarDimension = (dim: FilterState['dimension']) => {
     setFilters((prev) => ({ ...prev, dimension: dim, chapterNumber: 'all' }))
     if (dim !== 'all') {
@@ -548,14 +599,30 @@ export function HowToLivePage(props: HowToLivePageProps) {
                     dimensions={snap.meta.dimensions}
                     chapters={snap.chapters}
                     audiences={snap.meta.stats.topAudiences}
-                    shownCount={viewMode === 'cve' ? cveReport.vulnerabilities.length : filteredItems.length}
+                    shownCount={
+                      viewMode === 'cve'
+                        ? cveReport.vulnerabilities.length
+                        : viewMode === 'graph'
+                          ? scopedItems.length
+                          : filteredItems.length
+                    }
                     totalCount={snap.items.length}
                     skippedCount={snap.summary?.skippedCount ?? 0}
-                    shortcutEnabled={!profileOpen && !sprintOpen && !badgesOpen && !shareOpen && snap.selectedItemId === null}
+                    shortcutEnabled={
+                      !profileOpen
+                      && !sprintOpen
+                      && !badgesOpen
+                      && !shareOpen
+                      && !skipWizardOpen
+                      && snap.selectedItemId === null
+                    }
                     viewMode={viewMode}
                     onViewModeChange={setViewMode}
                     cveCriticalCount={cveReport.criticalCount}
                     dueReviewCount={dueReviewCount}
+                    onPlanWeekend={handlePlanWeekend}
+                    skipCandidateCount={skipAnalysis.totalCount}
+                    onOpenSkipWizard={() => setSkipWizardOpen(true)}
                     onChange={setFilters}
                     t={t}
                   />
@@ -569,6 +636,15 @@ export function HowToLivePage(props: HowToLivePageProps) {
                   onSetStatus={(id, status) => {
                     void handleUpdateProgress(id, { status }).catch(() => undefined)
                   }}
+                  onOpenDetail={(id) => void openItemDetail(id)}
+                  t={t}
+                />
+              ) : viewMode === 'graph' ? (
+                <PatchGraphView
+                  items={scopedItems}
+                  progress={snap.state?.progress ?? {}}
+                  dimensions={snap.meta?.dimensions ?? []}
+                  activeDimension={filters.dimension}
                   onOpenDetail={(id) => void openItemDetail(id)}
                   t={t}
                 />
@@ -695,6 +771,12 @@ export function HowToLivePage(props: HowToLivePageProps) {
           setProfileGuideForCheckup(false)
           runCheckup(profile)
         }}
+        onSaveAndScreenSkip={async (profile) => {
+          await saveProfile(profile)
+          setProfileOpen(false)
+          setProfileGuideForCheckup(false)
+          setSkipWizardOpen(true)
+        }}
         {...(profileGuideForCheckup
           ? {
               onSkipToCheckup: () => {
@@ -737,6 +819,14 @@ export function HowToLivePage(props: HowToLivePageProps) {
         profile={snap.state?.profile}
         onClose={() => setShareOpen(false)}
         onNotify={(msg, tone) => showToast(msg, { tone: tone ?? 'success' })}
+        t={t}
+      />
+
+      <ProfileSkipWizardModal
+        open={skipWizardOpen}
+        analysis={skipAnalysis}
+        onClose={() => setSkipWizardOpen(false)}
+        onConfirmSkip={handleBatchSkip}
         t={t}
       />
 

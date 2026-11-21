@@ -273,6 +273,62 @@ export function createHowToLiveRoutes(
       },
     },
     {
+      path: `${API_PREFIX}/progress/batch`,
+      methods: ['POST'],
+      requestBody: 'buffered',
+      async fetch(request) {
+        const body = (await readJsonBody(request)) as
+          | {
+              updates?: unknown
+            }
+          | undefined
+        if (!Array.isArray(body?.updates) || body.updates.length === 0) {
+          return jsonResponse({ error: '缺少有效的 updates 批量更新列表' }, 400)
+        }
+        if (body.updates.length > 500) {
+          return jsonResponse({ error: '单次批量更新不能超过 500 条' }, 400)
+        }
+
+        const sanitized: Array<{ id: string; status?: ItemStatus; note?: string }> = []
+        for (const raw of body.updates) {
+          if (typeof raw !== 'object' || raw === null) continue
+          const rec = raw as Record<string, unknown>
+          const id = typeof rec.id === 'string' ? rec.id.trim() : ''
+          if (!id || !knowledge.getById(id)) continue
+          let status: ItemStatus | undefined
+          if (rec.status !== undefined) {
+            if (rec.status === 'todo' || rec.status === 'planned' || rec.status === 'done' || rec.status === 'skipped') {
+              status = rec.status
+            } else {
+              return jsonResponse({ error: `无效的 status 值（条目 ${id}）` }, 400)
+            }
+          }
+          const note = typeof rec.note === 'string' ? rec.note : undefined
+          sanitized.push({
+            id,
+            ...(status !== undefined ? { status } : {}),
+            ...(note !== undefined ? { note } : {}),
+          })
+        }
+
+        if (sanitized.length === 0) {
+          return jsonResponse({ error: '未匹配到可更新的有效条目' }, 400)
+        }
+
+        const updated = await stateStore.updateItemsProgressBatch(sanitized)
+        const summary = computeScoreSummary(
+          knowledge.allSummaries,
+          updated.state.progress,
+          knowledge.meta.dimensions,
+        )
+        return jsonResponse({
+          state: updated.state,
+          summary,
+          updatedCount: updated.changes.length,
+        })
+      },
+    },
+    {
       path: `${API_PREFIX}/profile`,
       methods: ['POST'],
       requestBody: 'buffered',

@@ -112,6 +112,7 @@ export function apply(ctx: ClientContext): void {
               goBackItemDetail: controller.goBackItemDetail,
               closeItemDetail: controller.closeItemDetail,
               setItemProgress: controller.setItemProgress,
+              setItemsProgressBatch: controller.setItemsProgressBatch,
               saveProfile: controller.saveProfile,
               rerollDaily: controller.rerollDaily,
               exportMarkdown: controller.exportMarkdown,

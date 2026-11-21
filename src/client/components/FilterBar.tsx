@@ -12,7 +12,15 @@ import type {
   ViewMode,
 } from '../../shared/types.ts'
 import type { HowToLiveLocaleKey } from '../locales.ts'
-import { IconClock, IconLayoutGrid, IconScanRadar, IconSliders, IconX } from './Icons.tsx'
+import {
+  IconCalendar,
+  IconClock,
+  IconLayoutGrid,
+  IconNetwork,
+  IconScanRadar,
+  IconSliders,
+  IconX,
+} from './Icons.tsx'
 import css from './FilterBar.module.css'
 
 export interface FilterState {
@@ -51,13 +59,19 @@ export interface FilterBarProps {
   readonly skippedCount: number
   /** 是否启用 `/` 快捷键聚焦搜索框（弹窗打开时可禁用） */
   readonly shortcutEnabled?: boolean
-  /** 当前主视图模式（cards / cve），传入 onViewModeChange 时在筛选栏右侧展示视图切换 Tab */
+  /** 当前主视图模式（cards / cve / graph），传入 onViewModeChange 时在筛选栏右侧展示视图切换 Tab */
   readonly viewMode?: ViewMode
   readonly onViewModeChange?: (mode: ViewMode) => void
   /** 漏洞扫描未修复高危数角标 */
   readonly cveCriticalCount?: number
   /** 到期待复检补丁数 */
   readonly dueReviewCount?: number
+  /** 当处于「行动清单」且列表非空时触发 AI 本周末执行排期 */
+  readonly onPlanWeekend?: () => void
+  /** 画像智能筛查识别出的潜在不适用待办数量 */
+  readonly skipCandidateCount?: number
+  /** 打开画像智能筛查向导 */
+  readonly onOpenSkipWizard?: () => void
   readonly onChange: (next: FilterState) => void
   readonly t: TranslateNS<'howtolive'>
 }
@@ -96,6 +110,9 @@ export function FilterBar({
   onViewModeChange,
   cveCriticalCount = 0,
   dueReviewCount = 0,
+  onPlanWeekend,
+  skipCandidateCount = 0,
+  onOpenSkipWizard,
   onChange,
   t,
 }: FilterBarProps) {
@@ -202,6 +219,16 @@ export function FilterBar({
                 <span className={css.cveBadge}>{cveCriticalCount}</span>
               )}
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={viewMode === 'graph'}
+              className={clsx(css.viewTab, viewMode === 'graph' && css.viewTabActive)}
+              onClick={() => onViewModeChange('graph')}
+            >
+              <IconNetwork size={13} />
+              <span>{t('view.graph')}</span>
+            </button>
           </div>
         )}
       </div>
@@ -292,6 +319,17 @@ export function FilterBar({
             <span>{t('review.filterPill', { count: dueReviewCount })}</span>
           </button>
         )}
+
+        {viewMode === 'cards' && filters.status === 'planned' && shownCount > 0 && onPlanWeekend && (
+          <button
+            type="button"
+            className={css.weekendBtn}
+            onClick={onPlanWeekend}
+          >
+            <IconCalendar size={13} />
+            <span>{t('filter.planWeekend')}</span>
+          </button>
+        )}
       </div>
 
       {/* 可折叠高级筛选面板 */}
@@ -366,15 +404,26 @@ export function FilterBar({
             {t('filter.skippedHint', { count: skippedCount })}
           </span>
         )}
-        {hasActiveFilter && (
-          <button
-            type="button"
-            className={css.resetBtn}
-            onClick={() => onChange(DEFAULT_FILTERS)}
-          >
-            {t('filter.reset')}
-          </button>
-        )}
+        <div className={css.metaActions}>
+          {skipCandidateCount > 0 && onOpenSkipWizard && (
+            <button
+              type="button"
+              className={css.skipWizardBtn}
+              onClick={onOpenSkipWizard}
+            >
+              {t('skipWizard.openFromBar', { count: skipCandidateCount })}
+            </button>
+          )}
+          {hasActiveFilter && (
+            <button
+              type="button"
+              className={css.resetBtn}
+              onClick={() => onChange(DEFAULT_FILTERS)}
+            >
+              {t('filter.reset')}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

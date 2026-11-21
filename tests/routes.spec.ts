@@ -129,5 +129,16 @@ describe('Host JSON API Routes', () => {
     // 非法导入体返回 400
     const badImport = await call(`${API_PREFIX}/state/import`, 'POST', { version: 999 })
     expect(badImport.status).toBe(400)
+
+    // /progress/batch 单次批量标记不适用
+    const batchRes = await call(`${API_PREFIX}/progress/batch`, 'POST', {
+      updates: [
+        { id: '01-01', status: 'skipped' },
+        { id: '01-02', status: 'skipped' },
+      ],
+    })
+    expect(batchRes.status).toBe(200)
+    expect(batchRes.data.updatedCount).toBe(2)
+    expect((batchRes.data.summary as { skippedCount: number }).skippedCount).toBe(2)
   })
 })

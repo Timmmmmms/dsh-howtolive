@@ -5,8 +5,10 @@ import {
   buildCheckupPrompt,
   buildItemActionPrompt,
   buildLifeOsCardSvg,
+  buildPatchGraph,
   buildScenarioPrompt,
   buildSprintDeck,
+  buildWeekendPlanPrompt,
   computeBadges,
   computeLevelInfo,
   computeLifeOsProfile,
@@ -14,6 +16,7 @@ import {
   countDueReviewItems,
   countSprintModeAvailability,
   DEFAULT_DIMENSIONS,
+  findProfileSkipCandidates,
   formatLifeCveId,
   getItemNextReviewDate,
   getRecommendedReviewInterval,
@@ -410,5 +413,111 @@ describe('shared scoring & levels', () => {
     const summary = computeScoreSummary(items, progress, DEFAULT_DIMENSIONS, '2024-04-01T00:00:00Z')
     expect(summary.dueReviewCount).toBe(1)
     expect(summary.totalXp).toBe(40)
+  })
+
+  it('Task 3A：buildPatchGraph 确定性计算六维放射星图，默认过滤孤立节点并支持单维度展开', () => {
+    const items: KnowledgeItemSummary[] = [
+      makeItem({ id: '01-01', dimension: 'survival', roiTier: 'S', crossRefs: ['05-01', '01-01', '99-99'] }),
+      makeItem({ id: '05-01', dimension: 'wealth', chapterNumber: 5, roiTier: 'A', crossRefs: ['14-01'] }),
+      makeItem({ id: '14-01', dimension: 'resilience', chapterNumber: 14, roiTier: 'S', crossRefs: [] }),
+      makeItem({ id: '09-01', dimension: 'legal', chapterNumber: 9, roiTier: 'B', crossRefs: [] }), // 孤立节点
+    ]
+    const progress: Record<string, ItemProgress> = {
+      '01-01': { status: 'done', updatedAt: '2026-11-21T00:00:00Z' },
+      '05-01': { status: 'done', updatedAt: '2026-11-21T00:00:00Z' },
+    }
+
+    const g1 = buildPatchGraph(items, progress)
+    const g2 = buildPatchGraph(items, progress)
+
+    // 确定性：相同输入产出完全一致的坐标与边
+    expect(g1.nodes).toEqual(g2.nodes)
+    expect(g1.edges).toEqual(g2.edges)
+    // 默认 core 模式仅展示参与关联的 3 个节点，跳过自环与不存在的 99-99
+    expect(g1.mode).toBe('core')
+    expect(g1.nodes.map((n) => n.id).sort()).toEqual(['01-01', '05-01', '14-01'])
+    expect(g1.isolatedCount).toBe(1)
+    expect(g1.edges).toHaveLength(2)
+    expect(g1.edges.find((e) => e.id === '01-01->05-01')?.bothDone).toBe(true)
+    expect(g1.edges.find((e) => e.id === '01-01->05-01')?.crossDimension).toBe(true)
+
+    // includeIsolated: true 包含孤立节点
+    const gAll = buildPatchGraph(items, progress, { includeIsolated: true })
+    expect(gAll.mode).toBe('all')
+    expect(gAll.nodes).toHaveLength(4)
+
+    // 单维度模式只展示对应扇区
+    const gSingle = buildPatchGraph(
+      items.filter((i) => i.dimension === 'legal'),
+      progress,
+      { dimension: 'legal' },
+    )
+    expect(gSingle.sectors).toHaveLength(1)
+    expect(gSingle.sectors[0]?.dimension).toBe('legal')
+    expect(gSingle.nodes).toHaveLength(1)
+  })
+
+  it('Task 3B：findProfileSkipCandidates 按画像保守识别不适用 todo 条目且绝不触碰已处理条目', () => {
+    const items: KnowledgeItemSummary[] = [
+      makeItem({ id: '27-01', chapterNumber: 27, dimension: 'family', title: '孕期产检', tags: { money: '少', time: '少', willpower: '否', benefit: '大', metric: '', audience: ['怀孕'], raw: '' } }),
+      makeItem({ id: '20-01', chapterNumber: 20, dimension: 'family', title: '新生儿黄疸', tags: { money: '0', time: '少', willpower: '否', benefit: '大', metric: '', audience: ['婴幼儿'], raw: '' } }),
+      makeItem({ id: '11-01', chapterNumber: 11, dimension: 'legal', title: '爬虫法律红线' }),
+      makeItem({ id: '15-01', chapterNumber: 15, dimension: 'wealth', title: '租房退租押金维权' }),
+      makeItem({ id: '15-02', chapterNumber: 15, dimension: 'wealth', title: '买房验房清单' }),
+      makeItem({ id: '01-01', chapterNumber: 1, dimension: 'survival', title: '安全带' }),
+      // 已被用户标记为 planned 的条目绝不进入筛查候选
+      makeItem({ id: '27-02', chapterNumber: 27, dimension: 'family', title: '孕期营养' }),
+    ]
+
+    const progress: Record<string, ItemProgress> = {
+      '27-02': { status: 'planned', updatedAt: '2026-11-21T00:00:00Z' },
+    }
+
+    const analysis = findProfileSkipCandidates(items, progress, {
+      ageGroup: '26-35',
+      occupation: 'office',
+      housing: 'owned',
+      family: ['single'],
+    })
+
+    const candidateIds = analysis.candidates.map((c) => c.item.id).sort()
+    expect(candidateIds).toEqual(['11-01', '15-01', '20-01', '27-01'])
+    expect(candidateIds).not.toContain('27-02')
+    expect(candidateIds).not.toContain('15-02')
+    expect(candidateIds).not.toContain('01-01')
+    expect(analysis.groups.map((g) => g.reasonId)).toEqual([
+      'notPregnant',
+      'noInfant',
+      'notDeveloper',
+      'notRenting',
+    ])
+  })
+
+  it('Task 3B：buildWeekendPlanPrompt 生成包含成本/耗时标签与画像的周末行动时间表提示词', () => {
+    const planned: KnowledgeItemSummary[] = [
+      makeItem({
+        id: '14-01',
+        chapterNumber: 14,
+        title: '为重要账号开启两步验证',
+        roiTier: 'S',
+        tags: { money: '0', time: '少', willpower: '否', benefit: '大', metric: '', audience: [], raw: '' },
+      }),
+      makeItem({
+        id: '01-26',
+        chapterNumber: 1,
+        title: '家里备齐灭火器',
+        roiTier: 'A',
+        tags: { money: '少', time: '少', willpower: '否', benefit: '大', metric: '', audience: [], raw: '' },
+      }),
+    ]
+
+    const prompt = buildWeekendPlanPrompt(planned, { occupation: 'programmer', housing: 'renting' })
+    expect(prompt).toContain('14-01')
+    expect(prompt).toContain('01-26')
+    expect(prompt).toContain('花钱:0')
+    expect(prompt).toContain('耗时:少')
+    expect(prompt).toContain('程序员')
+    expect(prompt).toContain('周六上午')
+    expect(prompt).toContain('howtolive_get_item')
   })
 })

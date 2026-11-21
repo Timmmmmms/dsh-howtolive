@@ -87,6 +87,20 @@ export function postItemProgress(
   })
 }
 
+/** 批量更新多条条目进度（单次原子落盘，用于画像智能筛查一键跳过等场景） */
+export function postBatchItemProgress(
+  updates: ReadonlyArray<{ id: string } & ItemProgressPatch>,
+): Promise<{
+  state: HowToLiveState
+  summary: ScoreSummary
+  updatedCount: number
+}> {
+  return requestJson(`${API_BASE}/progress/batch`, {
+    method: 'POST',
+    body: JSON.stringify({ updates }),
+  })
+}
+
 /** 保存本地个人画像 */
 export function postUserProfile(profile: UserProfile): Promise<{
   state: HowToLiveState

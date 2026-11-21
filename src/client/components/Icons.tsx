@@ -322,6 +322,69 @@ export function IconImage({ size = 14, ...rest }: IconProps) {
   )
 }
 
+/** 关系星图 / 技能树（PatchGraphView 视图） */
+export function IconNetwork({ size = 14, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <circle cx="12" cy="5" r="2.2" />
+      <circle cx="5.5" cy="18" r="2.2" />
+      <circle cx="18.5" cy="18" r="2.2" />
+      <circle cx="12" cy="13" r="1.8" />
+      <path d="M12 7.2v4" />
+      <path d="M10.4 14.1 7.2 16.7" />
+      <path d="m13.6 14.1 3.2 2.6" />
+    </svg>
+  )
+}
+
+/** 放大画布 */
+export function IconZoomIn({ size = 14, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.35-4.35" />
+      <path d="M11 8v6" />
+      <path d="M8 11h6" />
+    </svg>
+  )
+}
+
+/** 缩小画布 */
+export function IconZoomOut({ size = 14, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m21 21-4.35-4.35" />
+      <path d="M8 11h6" />
+    </svg>
+  )
+}
+
+/** 重置视角 */
+export function IconRotateCcw({ size = 14, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  )
+}
+
+/** 日历排期（行动清单本周末 AI 排期） */
+export function IconCalendar({ size = 14, ...rest }: IconProps) {
+  return (
+    <svg {...baseProps(size)} {...rest}>
+      <rect width="18" height="18" x="3" y="4" rx="2" />
+      <path d="M16 2v4" />
+      <path d="M8 2v4" />
+      <path d="M3 10h18" />
+      <path d="M8 14h.01" />
+      <path d="M12 14h.01" />
+      <path d="M16 14h.01" />
+    </svg>
+  )
+}
+
 /** 根据情景 ID 返回对应的精致线性 SVG 图标 */
 export function ScenarioIcon({ id, size = 18 }: { readonly id: string; readonly size?: number }) {
   switch (id) {

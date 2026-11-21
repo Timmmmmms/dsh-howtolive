@@ -18,6 +18,7 @@ import {
   fetchExportMarkdown,
   fetchItemDetail,
   fetchState,
+  postBatchItemProgress,
   postItemProgress,
   postRerollDailyPick,
   postSyncKnowledge,
@@ -67,6 +68,9 @@ export interface HowToLiveClientController {
   goBackItemDetail(): Promise<void>
   closeItemDetail(): void
   setItemProgress(id: string, patch: ItemProgressPatch): Promise<ProgressUpdateResult>
+  setItemsProgressBatch(
+    updates: ReadonlyArray<{ id: string } & ItemProgressPatch>,
+  ): Promise<{ state: HowToLiveState; summary: ScoreSummary; updatedCount: number }>
   saveProfile(profile: UserProfile): Promise<void>
   rerollDaily(): Promise<void>
   exportMarkdown(): Promise<{ filename: string; markdown: string }>
@@ -289,6 +293,52 @@ export function createHowToLiveController(): HowToLiveClientController {
     }
   }
 
+  /** 批量乐观更新多条条目进度（请求失败自动回滚） */
+  const setItemsProgressBatch = async (
+    updates: ReadonlyArray<{ id: string } & ItemProgressPatch>,
+  ): Promise<{ state: HowToLiveState; summary: ScoreSummary; updatedCount: number }> => {
+    const snapBefore = store.getSnapshot()
+    const prevState = snapBefore.state
+    const prevSummary = snapBefore.summary
+
+    if (prevState && snapBefore.items.length > 0 && snapBefore.meta && updates.length > 0) {
+      let optimisticProgress = prevState.progress
+      for (const entry of updates) {
+        const { id, ...patch } = entry
+        optimisticProgress = buildOptimisticProgress(optimisticProgress, id, patch)
+      }
+      const optimisticState: HowToLiveState = {
+        ...prevState,
+        progress: optimisticProgress,
+        updatedAt: new Date().toISOString(),
+      }
+      const optimisticSummary = computeScoreSummary(
+        snapBefore.items,
+        optimisticProgress,
+        snapBefore.meta.dimensions,
+      )
+      store.update((draft) => {
+        draft.state = optimisticState
+        draft.summary = optimisticSummary
+      })
+    }
+
+    try {
+      const result = await postBatchItemProgress(updates)
+      store.update((draft) => {
+        draft.state = result.state
+        draft.summary = result.summary
+      })
+      return result
+    } catch (err) {
+      store.update((draft) => {
+        draft.state = prevState
+        draft.summary = prevSummary
+      })
+      throw err
+    }
+  }
+
   const saveProfile = async (profile: UserProfile): Promise<void> => {
     const result = await postUserProfile(profile)
     store.update((draft) => {
@@ -339,6 +389,7 @@ export function createHowToLiveController(): HowToLiveClientController {
     goBackItemDetail,
     closeItemDetail,
     setItemProgress,
+    setItemsProgressBatch,
     saveProfile,
     rerollDaily,
     exportMarkdown,

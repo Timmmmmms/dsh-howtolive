@@ -11,6 +11,8 @@ export interface ProfileModalProps {
   readonly onClose: () => void
   readonly onSave: (profile: UserProfile) => Promise<void>
   readonly onSaveAndCheckup: (profile: UserProfile) => Promise<void>
+  /** 保存画像后立即打开「智能筛查不适用条目」预览向导 */
+  readonly onSaveAndScreenSkip?: (profile: UserProfile) => Promise<void>
   /** 首次体检引导模式下提供「跳过画像直接体检」入口 */
   readonly onSkipToCheckup?: () => void
   readonly t: TranslateNS<'howtolive'>
@@ -72,6 +74,7 @@ export function ProfileModal({
   onClose,
   onSave,
   onSaveAndCheckup,
+  onSaveAndScreenSkip,
   onSkipToCheckup,
   t,
 }: ProfileModalProps) {
@@ -84,12 +87,14 @@ export function ProfileModal({
     }
   }, [open, profile])
 
-  const submitSave = async (runCheckup: boolean) => {
+  const submitSave = async (action: 'save' | 'checkup' | 'screenSkip') => {
     if (busy) return
     setBusy(true)
     try {
-      if (runCheckup) {
+      if (action === 'checkup') {
         await onSaveAndCheckup(draft)
+      } else if (action === 'screenSkip' && onSaveAndScreenSkip) {
+        await onSaveAndScreenSkip(draft)
       } else {
         await onSave(draft)
         onClose()
@@ -115,13 +120,18 @@ export function ProfileModal({
               {t('profile.skipToCheckup')}
             </Button>
           )}
+          {onSaveAndScreenSkip && (
+            <Button variant="outline" size="sm" onClick={() => void submitSave('screenSkip')} disabled={busy}>
+              {t('skipWizard.openFromProfile')}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>
             {t('profile.cancel')}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => void submitSave(false)} disabled={busy}>
+          <Button variant="outline" size="sm" onClick={() => void submitSave('save')} disabled={busy}>
             {t('profile.save')}
           </Button>
-          <Button variant="primary" size="sm" onClick={() => void submitSave(true)} disabled={busy}>
+          <Button variant="primary" size="sm" onClick={() => void submitSave('checkup')} disabled={busy}>
             {t('profile.saveAndCheckup')}
           </Button>
         </div>

@@ -54,16 +54,19 @@ import { LifeRadarCard } from '../src/client/components/LifeRadarCard.tsx'
 import { DailyPickCard } from '../src/client/components/DailyPickCard.tsx'
 import { DEFAULT_FILTERS, FilterBar } from '../src/client/components/FilterBar.tsx'
 import { ItemDetailDrawer } from '../src/client/components/ItemDetailDrawer.tsx'
+import { PatchGraphView } from '../src/client/components/PatchGraphView.tsx'
 import { PatchSprintModal } from '../src/client/components/PatchSprintModal.tsx'
 import { ScenarioBar } from '../src/client/components/ScenarioBar.tsx'
 import { ShareCardModal } from '../src/client/components/ShareCardModal.tsx'
 import { ProfileModal } from '../src/client/components/ProfileModal.tsx'
+import { ProfileSkipWizardModal } from '../src/client/components/ProfileSkipWizardModal.tsx'
 import { TurnPatchCard } from '../src/client/components/TurnPatchCard.tsx'
 import { howtoliveTurnDefinition, selectHowToLivePatches } from '../src/client/howtolive-turn.ts'
 import { en, zh, type HowToLiveLocaleKey } from '../src/client/locales.ts'
 import { createHowToLiveController } from '../src/client/store.ts'
 import { computeBadges } from '../src/shared/badges.ts'
 import { scanLifeVulnerabilities } from '../src/shared/cve.ts'
+import { findProfileSkipCandidates } from '../src/shared/profile-filter.ts'
 import { computeScoreSummary, DEFAULT_DIMENSIONS } from '../src/shared/scoring.ts'
 import type { KnowledgeItem, KnowledgeItemSummary } from '../src/shared/types.ts'
 
@@ -775,5 +778,127 @@ describe('Client components & Turn projection', () => {
       expect(lastCall?.[0]).toBe('01-26')
       expect(typeof lastCall?.[1]?.lastReviewedAt).toBe('string')
     })
+  })
+
+  it('Task 3A：PatchGraphView 渲染纯 SVG 星图，支持缩放重置、键盘聚焦预览与点击/回车打开详情', () => {
+    const onOpenDetail = vi.fn()
+    const items: KnowledgeItemSummary[] = [
+      { ...SAMPLE_ITEM, id: '01-01', title: '系安全带', crossRefs: ['05-01'] },
+      { ...SAMPLE_ITEM, id: '05-01', chapterNumber: 5, dimension: 'wealth', title: '应急储备金', crossRefs: [] },
+      { ...SAMPLE_ITEM, id: '09-01', chapterNumber: 9, dimension: 'legal', title: '孤立条目', crossRefs: [] },
+    ]
+
+    render(
+      <PatchGraphView
+        items={items}
+        progress={{ '01-01': { status: 'done', updatedAt: '2026-11-21T00:00:00Z' } }}
+        dimensions={DEFAULT_DIMENSIONS}
+        activeDimension="all"
+        onOpenDetail={onOpenDetail}
+        t={t}
+      />,
+    )
+
+    // 缩放与重置视角
+    expect(screen.getByText('100%')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '放大' }))
+    expect(screen.queryByText('100%')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '重置视角' }))
+    expect(screen.getByText('100%')).toBeTruthy()
+
+    // 键盘聚焦节点显示预览卡并按 Enter 打开详情
+    const nodeBtn = screen.getByRole('button', { name: '[01-01] 系安全带' })
+    fireEvent.focus(nodeBtn)
+    expect(screen.getByText('系安全带')).toBeTruthy()
+    fireEvent.keyDown(nodeBtn, { key: 'Enter' })
+    expect(onOpenDetail).toHaveBeenCalledWith('01-01')
+
+    // 切换至展开星区全部模式可显示孤立节点
+    fireEvent.click(screen.getByRole('button', { name: '展开星区全部 (3)' }))
+    expect(screen.getByRole('button', { name: '[09-01] 孤立条目' })).toBeTruthy()
+  })
+
+  it('Task 3B：ProfileSkipWizardModal 必须经用户勾选确认后才批量跳过，绝不静默修改', async () => {
+    const onConfirmSkip = vi.fn().mockResolvedValue(undefined)
+    const onClose = vi.fn()
+    const items: KnowledgeItemSummary[] = [
+      {
+        ...SAMPLE_ITEM,
+        id: '27-01',
+        chapterNumber: 27,
+        dimension: 'family',
+        title: '孕期定期产检',
+        tags: { money: '少', time: '少', willpower: '否', benefit: '大', metric: '', audience: ['怀孕'], raw: '' },
+      },
+      {
+        ...SAMPLE_ITEM,
+        id: '11-01',
+        chapterNumber: 11,
+        dimension: 'legal',
+        title: '技术爬虫法律红线',
+      },
+    ]
+
+    const analysis = findProfileSkipCandidates(items, {}, { occupation: 'office', family: ['single'] })
+
+    render(
+      <ProfileSkipWizardModal
+        open={true}
+        analysis={analysis}
+        onClose={onClose}
+        onConfirmSkip={onConfirmSkip}
+        t={t}
+      />,
+    )
+
+    // 打开弹窗时绝不静默调用 onConfirmSkip
+    expect(onConfirmSkip).not.toHaveBeenCalled()
+    expect(screen.getByText('已勾选 2 / 2 条')).toBeTruthy()
+
+    // 取消勾选其中一条，再点击确认
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes).toHaveLength(2)
+    fireEvent.click(checkboxes[1]!)
+    expect(screen.getByText('已勾选 1 / 2 条')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '批量标记为不适用 (1)' }))
+    await waitFor(() => {
+      expect(onConfirmSkip).toHaveBeenCalledWith(['27-01'])
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('Task 3A & 3B：FilterBar 展示关系星图 Tab，且在行动清单非空时展示本周末 AI 排期按钮', () => {
+    const onViewModeChange = vi.fn()
+    const onPlanWeekend = vi.fn()
+    const onOpenSkipWizard = vi.fn()
+
+    render(
+      <FilterBar
+        filters={{ ...DEFAULT_FILTERS, status: 'planned' }}
+        dimensions={DEFAULT_DIMENSIONS}
+        chapters={[]}
+        audiences={[]}
+        shownCount={3}
+        totalCount={10}
+        skippedCount={0}
+        viewMode="cards"
+        onViewModeChange={onViewModeChange}
+        onPlanWeekend={onPlanWeekend}
+        skipCandidateCount={5}
+        onOpenSkipWizard={onOpenSkipWizard}
+        onChange={() => {}}
+        t={t}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '关系星图' }))
+    expect(onViewModeChange).toHaveBeenCalledWith('graph')
+
+    fireEvent.click(screen.getByRole('button', { name: '让 AI 排一份本周末执行计划' }))
+    expect(onPlanWeekend).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '智能筛查不适用 (5)' }))
+    expect(onOpenSkipWizard).toHaveBeenCalledTimes(1)
   })
 })

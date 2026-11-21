@@ -326,3 +326,61 @@ export function buildChaosDrillPrompt(
     '现在请直接进入【第 1 轮】危机现场！',
   ].filter(Boolean).join('\n')
 }
+
+/**
+ * 构造「行动清单 AI 排期」提示词：
+ * 将当前处于 `planned`（行动清单）的条目连同成本/耗时信息发送给 DeepSeek，
+ * 生成一份可在本周末落地执行的分时段行动时间表。
+ */
+export function buildWeekendPlanPrompt(
+  plannedItems: readonly KnowledgeItemSummary[],
+  profile: UserProfile,
+  summary?: ScoreSummary,
+): string {
+  const profileText = formatProfileContext(profile)
+  const sorted = [...plannedItems].sort(
+    (a, b) =>
+      DRILL_TIER_RANK[a.roiTier] - DRILL_TIER_RANK[b.roiTier]
+      || (a.tags?.money === '0' ? 0 : 1) - (b.tags?.money === '0' ? 0 : 1)
+      || b.roiScore - a.roiScore
+      || a.chapterNumber - b.chapterNumber
+      || a.number - b.number,
+  )
+  const MAX_ITEMS = 20
+  const selected = sorted.slice(0, MAX_ITEMS)
+  const omittedCount = Math.max(0, sorted.length - selected.length)
+
+  const itemLines = selected.map((item, idx) => {
+    const costTags: string[] = []
+    if (item.tags?.money) costTags.push(`花钱:${item.tags.money}`)
+    if (item.tags?.time) costTags.push(`耗时:${item.tags.time}`)
+    if (item.tags?.willpower) costTags.push(`毅力:${item.tags.willpower}`)
+    const tagPart = costTags.length > 0 ? costTags.join(' / ') : item.cost || '见详情'
+    return `${idx + 1}. [${item.id}]（${item.roiTier} 级 · ${tagPart}）${item.title} — ${item.plain}`
+  })
+
+  if (omittedCount > 0) {
+    itemLines.push(`（其余 ${omittedCount} 条待办可作为后续批次，本周末优先安排上述高性价比条目。）`)
+  }
+
+  const summaryLine = summary
+    ? `当前进度：Lv.${summary.level.level} ${summary.level.title}，待办行动清单共 ${plannedItems.length} 条。`
+    : `当前待办行动清单共 ${plannedItems.length} 条。`
+
+  return [
+    '请帮我把当前「行动清单」里的待办人生补丁，排成一份【本周末可执行的时间表】（覆盖周六上午、周六下午、周日上午、周日下午四个时段）。',
+    '',
+    '### 我的本地个人画像',
+    profileText,
+    summaryLine,
+    '',
+    '### 我的行动清单（含成本与耗时标签）',
+    itemLines.length > 0 ? itemLines.join('\n') : '（请先调用 `howtolive_search` 检索 `status: "planned"` 的条目。）',
+    '',
+    '### 排期与输出要求',
+    '1. 如需确认具体操作步骤或所需材料，请调用 `howtolive_get_item` 核对原书完整原文，不要凭空编造流程。',
+    '2. **按阻力由低到高编排**：优先把「零花钱 / 零耗时 / 不靠毅力」的条目放在周六上午热身快速拿下，把需要出门、集中核对证件或较耗时的任务合理分散在周六下午和周日，确保本周末真实可落地、不过载。',
+    '3. 每个时段明确列出：**条目 ID 与标题**、**预计耗时与花钱预算**、**提前准备的材料/App**、**完成的验收标准**。',
+    '4. 如果清单条目较多，明确区分「本周末必做」与「顺延至下周」的批次，并在末尾提醒我完成后回到面板逐条打卡领取 XP；涉及医疗/法律/财务条目请遵守原书 `evidenceGrade` 与 `sources` 边界。',
+  ].join('\n')
+}
